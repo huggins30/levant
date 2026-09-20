@@ -1,0 +1,184 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: #0f1117;
+  color: #e2e8f0;
+  font-family: 'Inter', sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Loading */
+.app-loading {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #0f1117;
+}
+.app-spinner {
+  width: 44px;
+  height: 44px;
+  border: 3.5px solid rgba(108,99,255,.2);
+  border-top-color: #6c63ff;
+  border-radius: 50%;
+  animation: spin .8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* No auth */
+.app-noauth {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: .5rem;
+  text-align: center;
+  padding: 2rem;
+}
+.app-noauth h1  { font-size: 2.5rem; font-weight: 800; }
+.app-noauth p   { font-size: 1rem; color: #64748b; }
+.app-noauth-hint { font-size: .85rem !important; color: #4b5563 !important; margin-top: .5rem; }
+
+/* ── Layout raíz ── */
+.app-root {
+  display: flex;
+  min-height: 100vh;
+}
+
+/* ── Sidebar ── */
+.app-sidebar {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  width: 220px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  background: rgba(15,17,23,.95);
+  backdrop-filter: blur(12px);
+  border-right: 1px solid #2a2d3a;
+  padding: 1.25rem 1rem;
+  z-index: 100;
+}
+
+.app-sidebar-top {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.app-sidebar-bottom {
+  display: flex;
+  flex-direction: column;
+  gap: .6rem;
+}
+
+/* Logo */
+.app-logo {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-size: 1.1rem;
+  font-weight: 800;
+  color: #e2e8f0;
+  flex-shrink: 0;
+  padding: 0 .25rem;
+}
+.app-logo-img {
+  width: 30px;
+  height: 30px;
+  object-fit: contain;
+  border-radius: 6px;
+}
+
+/* Tabs verticales */
+.app-tabs {
+  display: flex;
+  flex-direction: column;
+  gap: .35rem;
+}
+.app-tab {
+  width: 100%;
+  text-align: left;
+  padding: .6rem .9rem;
+  border-radius: 10px;
+  border: 1.5px solid transparent;
+  background: transparent;
+  color: #64748b;
+  font-family: 'Inter', sans-serif;
+  font-size: .87rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all .2s ease;
+}
+.app-tab:hover {
+  background: rgba(108,99,255,.08);
+  border-color: #6c63ff55;
+  color: #a5b4fc;
+}
+.app-tab--active {
+  background: rgba(108,99,255,.15);
+  border-color: #6c63ff;
+  color: #c4b5fd;
+}
+
+/* Badge y logout */
+.app-rol-badge {
+  display: block;
+  text-align: center;
+  padding: .3rem .65rem;
+  border-radius: 999px;
+  font-size: .72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+}
+.app-rol-badge--cliente    { background: rgba(108,99,255,.15); color: #a5b4fc; border: 1px solid rgba(108,99,255,.3); }
+.app-rol-badge--comercio   { background: rgba(16,185,129,.12); color: #6ee7b7; border: 1px solid rgba(16,185,129,.28); }
+.app-rol-badge--repartidor { background: rgba(245,158,11,.12); color: #fcd34d; border: 1px solid rgba(245,158,11,.28); }
+
+.app-logout {
+  width: 100%;
+  background: transparent;
+  border: 1.5px solid #374151;
+  color: #64748b;
+  border-radius: 8px;
+  padding: .45rem .8rem;
+  font-family: 'Inter', sans-serif;
+  font-size: .83rem;
+  cursor: pointer;
+  transition: all .2s ease;
+}
+.app-logout:hover { border-color: #f87171; color: #f87171; }
+
+/* ── Contenido principal ── */
+.app-main {
+  flex: 1;
+  min-height: 100vh;
+  overflow-y: auto;
+}
+
+/* ── Responsive: sidebar colapsado arriba en móvil ── */
+@media (max-width: 640px) {
+  .app-root { flex-direction: column; }
+  .app-sidebar {
+    position: static;
+    width: 100%;
+    height: auto;
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    padding: .75rem 1rem;
+    border-right: none;
+    border-bottom: 1px solid #2a2d3a;
+  }
+  .app-sidebar-top { flex-direction: row; align-items: center; gap: 1rem; flex: 1; }
+  .app-sidebar-bottom { flex-direction: row; align-items: center; gap: .5rem; }
+  .app-tabs { flex-direction: row; gap: .3rem; }
+  .app-tab { width: auto; padding: .4rem .75rem; font-size: .8rem; }
+  .app-main { min-height: calc(100vh - 64px); }
+}

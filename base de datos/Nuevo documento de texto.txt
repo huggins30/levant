@@ -1,0 +1,452 @@
+-- ============================================================
+-- LEVANT — Plataforma de Delivery y Comercio para Venezuela
+-- Schema v1.0 | Supabase PostgreSQL
+-- ============================================================
+
+-- ─────────────────────────────────────────────
+-- 0. EXTENSIONES
+-- ─────────────────────────────────────────────
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+
+-- ─────────────────────────────────────────────
+-- 1. ENUM: ROL DE USUARIO
+-- ─────────────────────────────────────────────
+CREATE TYPE user_role AS ENUM ('cliente', 'comercio', 'repartidor');
+
+-- ─────────────────────────────────────────────
+-- 2. TABLA: PROFILES
+-- Vinculada 1:1 con auth.users
+-- ─────────────────────────────────────────────
+CREATE TABLE public.profiles (
+  id               UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+  email            TEXT NOT NULL UNIQUE,
+  nombre_completo  TEXT NOT NULL CHECK (char_length(nombre_completo) >= 3),
+  telefono         TEXT CHECK (telefono ~ '^(0412|0414|0424|0416|0426)[0-9]{7}$'),
+  rol              user_role NOT NULL,
+  avatar_url       TEXT,
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+COMMENT ON TABLE public.profiles IS 'Perfil base de todos los usuarios de la plataforma.';
+
+-- ─────────────────────────────────────────────
+-- 3. TABLA: CLIENTES_DATOS
+-- ─────────────────────────────────────────────
+CREATE TABLE public.clientes_datos (
+  id                UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  profile_id        UUID NOT NULL UNIQUE REFERENCES public.profiles(id) ON DELETE CASCADE,
+  direccion         TEXT NOT NULL,
+  punto_referencia  TEXT,
+  ciudad            TEXT NOT NULL,
+  estado            TEXT NOT NULL,
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+COMMENT ON TABLE public.clientes_datos IS 'Datos de entrega del cliente.';
+
+-- ─────────────────────────────────────────────
+-- 4. TABLA: COMERCIOS_DATOS
+-- ─────────────────────────────────────────────
+CREATE TYPE categoria_comercio AS ENUM (
+  'restaurante', 'farmacia', 'supermercado', 'tecnologia',
+  'ropa', 'ferreteria', 'panaderia', 'licoreria', 'otro'
+);
+
+CREATE TABLE public.comercios_datos (
+  id                UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  profile_id        UUID NOT NULL UNIQUE REFERENCES public.profiles(id) ON DELETE CASCADE,
+  nombre_comercial  TEXT NOT NULL CHECK (char_length(nombre_comercial) >= 2),
+  rif               TEXT NOT NULL CHECK (rif ~ '^(J|V|G|E)-[0-9]{8}-[0-9]$'),
+  direccion         TEXT NOT NULL,
+  categoria         categoria_comercio NOT NULL DEFAULT 'otro',
+  logo_url          TEXT,
+  activo            BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+COMMENT ON TABLE public.comercios_datos IS 'Datos del comercio registrado en la plataforma.';
+
+-- ─────────────────────────────────────────────
+-- 5. TABLA: REPARTIDORES_DATOS
+-- ─────────────────────────────────────────────
+CREATE TYPE tipo_vehiculo AS ENUM ('moto', 'carro', 'bicicleta', 'a_pie');
+
+CREATE TABLE public.repartidores_datos (
+  id           UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  profile_id   UUID NOT NULL UNIQUE REFERENCES public.profiles(id) ON DELETE CASCADE,
+  cedula       TEXT NOT NULL UNIQUE CHECK (cedula ~ '^(V|E)-[0-9]{6,8}$'),
+  vehiculo     tipo_vehiculo NOT NULL DEFAULT 'moto',
+  placa        TEXT CHECK (placa ~ '^[A-Z0-9]{5,8}$'),
+  disponible   BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+COMMENT ON TABLE public.repartidores_datos IS 'Datos operativos del repartidor.';
+
+-- ─────────────────────────────────────────────
+-- 6. TABLA: PRODUCTOS
+-- ─────────────────────────────────────────────
+CREATE TABLE public.productos (
+  id           UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  comercio_id  UUID NOT NULL REFERENCES public.comercios_datos(id) ON DELETE CASCADE,
+  nombre       TEXT NOT NULL CHECK (char_length(nombre) >= 2),
+  descripcion  TEXT,
+  precio_usd   NUMERIC(10, 2) NOT NULL CHECK (precio_usd >= 0),
+  stock        INTEGER NOT NULL DEFAULT 0 CHECK (stock >= 0),
+  imagen_url   TEXT,
+  activo       BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+COMMENT ON TABLE public.productos IS 'Catálogo de productos por comercio.';
+
+CREATE INDEX idx_productos_comercio ON public.productos(comercio_id);
+CREATE INDEX idx_productos_activo   ON public.productos(activo);
+
+-- ─────────────────────────────────────────────
+-- 7. TABLA: PEDIDOS_ENTREGAS
+-- ─────────────────────────────────────────────
+CREATE TYPE estado_pedido AS ENUM (
+  'pendiente', 'confirmado', 'en_preparacion',
+  'en_camino', 'entregado', 'cancelado'
+);
+
+CREATE TABLE public.pedidos_entregas (
+  id                UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  cliente_id        UUID NOT NULL REFERENCES public.profiles(id),
+  comercio_id       UUID NOT NULL REFERENCES public.comercios_datos(id),
+  repartidor_id     UUID REFERENCES public.repartidores_datos(id),
+  estado            estado_pedido NOT NULL DEFAULT 'pendiente',
+  total_usd         NUMERIC(10, 2) NOT NULL CHECK (total_usd >= 0),
+  direccion_entrega TEXT NOT NULL,
+  valoracion        SMALLINT CHECK (valoracion BETWEEN 1 AND 5),
+  comentario        TEXT CHECK (char_length(comentario) <= 500),
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+COMMENT ON TABLE public.pedidos_entregas IS 'Registro de pedidos y entregas entre cliente, comercio y repartidor.';
+
+CREATE INDEX idx_pedidos_cliente     ON public.pedidos_entregas(cliente_id);
+CREATE INDEX idx_pedidos_comercio    ON public.pedidos_entregas(comercio_id);
+CREATE INDEX idx_pedidos_repartidor  ON public.pedidos_entregas(repartidor_id);
+CREATE INDEX idx_pedidos_estado      ON public.pedidos_entregas(estado);
+
+-- ─────────────────────────────────────────────
+-- 8. TABLA: PEDIDO_ITEMS (detalle de productos por pedido)
+-- ─────────────────────────────────────────────
+CREATE TABLE public.pedido_items (
+  id           UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  pedido_id    UUID NOT NULL REFERENCES public.pedidos_entregas(id) ON DELETE CASCADE,
+  producto_id  UUID NOT NULL REFERENCES public.productos(id),
+  cantidad     INTEGER NOT NULL CHECK (cantidad > 0),
+  precio_usd   NUMERIC(10, 2) NOT NULL CHECK (precio_usd >= 0),
+  subtotal_usd NUMERIC(10, 2) GENERATED ALWAYS AS (cantidad * precio_usd) STORED
+);
+
+COMMENT ON TABLE public.pedido_items IS 'Ítems individuales dentro de un pedido.';
+
+-- ─────────────────────────────────────────────
+-- 9. TABLA: REPORTES_PAGO
+-- ─────────────────────────────────────────────
+CREATE TYPE metodo_pago AS ENUM ('pago_movil', 'zelle', 'transferencia', 'efectivo_usd', 'efectivo_bs');
+CREATE TYPE estado_pago AS ENUM ('pendiente', 'verificado', 'rechazado');
+
+CREATE TABLE public.reportes_pago (
+  id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  pedido_id       UUID NOT NULL REFERENCES public.pedidos_entregas(id) ON DELETE CASCADE,
+  cliente_id      UUID NOT NULL REFERENCES public.profiles(id),
+  metodo          metodo_pago NOT NULL DEFAULT 'pago_movil',
+  banco_origen    TEXT,
+  banco_destino   TEXT,
+  referencia      TEXT NOT NULL,
+  monto_bs        NUMERIC(14, 2),
+  monto_usd       NUMERIC(10, 2),
+  tasa_bcv        NUMERIC(10, 4),
+  estado          estado_pago NOT NULL DEFAULT 'pendiente',
+  comprobante_url TEXT,
+  notas           TEXT,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+COMMENT ON TABLE public.reportes_pago IS 'Reportes de pagos realizados por el cliente (Pago Móvil, Zelle, etc.).';
+
+CREATE INDEX idx_pagos_pedido   ON public.reportes_pago(pedido_id);
+CREATE INDEX idx_pagos_cliente  ON public.reportes_pago(cliente_id);
+CREATE INDEX idx_pagos_estado   ON public.reportes_pago(estado);
+
+-- ─────────────────────────────────────────────
+-- 10. TRIGGERS: updated_at automático
+-- ─────────────────────────────────────────────
+CREATE OR REPLACE FUNCTION update_updated_at()
+RETURNS TRIGGER LANGUAGE plpgsql AS $$
+BEGIN
+  NEW.updated_at = NOW();
+  RETURN NEW;
+END;
+$$;
+
+DO $$
+DECLARE
+  t TEXT;
+BEGIN
+  FOREACH t IN ARRAY ARRAY[
+    'profiles', 'clientes_datos', 'comercios_datos',
+    'repartidores_datos', 'productos', 'pedidos_entregas', 'reportes_pago'
+  ] LOOP
+    EXECUTE format(
+      'CREATE TRIGGER trg_%I_updated_at
+       BEFORE UPDATE ON public.%I
+       FOR EACH ROW EXECUTE FUNCTION update_updated_at();', t, t
+    );
+  END LOOP;
+END;
+$$;
+
+-- ─────────────────────────────────────────────
+-- 11. TRIGGER: Auto-crear profile al registrar usuario
+-- ─────────────────────────────────────────────
+CREATE OR REPLACE FUNCTION public.handle_new_user()
+RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER AS $$
+BEGIN
+  INSERT INTO public.profiles (id, email, nombre_completo, rol)
+  VALUES (
+    NEW.id,
+    NEW.email,
+    COALESCE(NEW.raw_user_meta_data->>'nombre_completo', 'Sin nombre'),
+    COALESCE((NEW.raw_user_meta_data->>'rol')::user_role, 'cliente')
+  );
+  RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER on_auth_user_created
+  AFTER INSERT ON auth.users
+  FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
+
+-- ─────────────────────────────────────────────
+-- 12. ROW LEVEL SECURITY (RLS)
+-- ─────────────────────────────────────────────
+
+-- Helper: obtener el rol del usuario autenticado
+CREATE OR REPLACE FUNCTION public.get_my_role()
+RETURNS user_role LANGUAGE sql STABLE SECURITY DEFINER AS $$
+  SELECT rol FROM public.profiles WHERE id = auth.uid();
+$$;
+
+-- ── PROFILES ──────────────────────────────────
+ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "profiles_select_own"
+  ON public.profiles FOR SELECT
+  USING (auth.uid() = id);
+
+CREATE POLICY "profiles_update_own"
+  ON public.profiles FOR UPDATE
+  USING (auth.uid() = id)
+  WITH CHECK (auth.uid() = id);
+
+-- Los comercios y repartidores pueden ver perfiles de clientes
+CREATE POLICY "profiles_select_comercio_cliente"
+  ON public.profiles FOR SELECT
+  USING (public.get_my_role() IN ('comercio', 'repartidor'));
+
+-- ── CLIENTES_DATOS ─────────────────────────────
+ALTER TABLE public.clientes_datos ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "clientes_datos_own"
+  ON public.clientes_datos FOR ALL
+  USING (profile_id = auth.uid())
+  WITH CHECK (profile_id = auth.uid());
+
+CREATE POLICY "clientes_datos_repartidor_select"
+  ON public.clientes_datos FOR SELECT
+  USING (public.get_my_role() = 'repartidor');
+
+-- ── COMERCIOS_DATOS ────────────────────────────
+ALTER TABLE public.comercios_datos ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "comercios_datos_own"
+  ON public.comercios_datos FOR ALL
+  USING (profile_id = auth.uid())
+  WITH CHECK (profile_id = auth.uid());
+
+-- Cualquier usuario autenticado puede ver comercios activos
+CREATE POLICY "comercios_datos_public_select"
+  ON public.comercios_datos FOR SELECT
+  USING (activo = TRUE AND auth.uid() IS NOT NULL);
+
+-- ── REPARTIDORES_DATOS ─────────────────────────
+ALTER TABLE public.repartidores_datos ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "repartidores_datos_own"
+  ON public.repartidores_datos FOR ALL
+  USING (profile_id = auth.uid())
+  WITH CHECK (profile_id = auth.uid());
+
+-- Comercios y clientes ven repartidores disponibles
+CREATE POLICY "repartidores_datos_comercio_select"
+  ON public.repartidores_datos FOR SELECT
+  USING (disponible = TRUE AND public.get_my_role() IN ('comercio', 'cliente'));
+
+-- ── PRODUCTOS ──────────────────────────────────
+ALTER TABLE public.productos ENABLE ROW LEVEL SECURITY;
+
+-- Lectura pública para usuarios autenticados (productos activos)
+CREATE POLICY "productos_public_select"
+  ON public.productos FOR SELECT
+  USING (activo = TRUE AND auth.uid() IS NOT NULL);
+
+-- Solo el comercio dueño puede gestionar sus productos
+CREATE POLICY "productos_comercio_manage"
+  ON public.productos FOR ALL
+  USING (
+    comercio_id IN (
+      SELECT id FROM public.comercios_datos WHERE profile_id = auth.uid()
+    )
+  )
+  WITH CHECK (
+    comercio_id IN (
+      SELECT id FROM public.comercios_datos WHERE profile_id = auth.uid()
+    )
+  );
+
+-- ── PEDIDOS_ENTREGAS ───────────────────────────
+ALTER TABLE public.pedidos_entregas ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "pedidos_cliente_select"
+  ON public.pedidos_entregas FOR SELECT
+  USING (cliente_id = auth.uid());
+
+CREATE POLICY "pedidos_cliente_insert"
+  ON public.pedidos_entregas FOR INSERT
+  WITH CHECK (cliente_id = auth.uid() AND public.get_my_role() = 'cliente');
+
+CREATE POLICY "pedidos_cliente_update_valoracion"
+  ON public.pedidos_entregas FOR UPDATE
+  USING (cliente_id = auth.uid() AND estado = 'entregado')
+  WITH CHECK (cliente_id = auth.uid());
+
+CREATE POLICY "pedidos_comercio_select"
+  ON public.pedidos_entregas FOR SELECT
+  USING (
+    comercio_id IN (
+      SELECT id FROM public.comercios_datos WHERE profile_id = auth.uid()
+    )
+  );
+
+CREATE POLICY "pedidos_comercio_update"
+  ON public.pedidos_entregas FOR UPDATE
+  USING (
+    comercio_id IN (
+      SELECT id FROM public.comercios_datos WHERE profile_id = auth.uid()
+    )
+  );
+
+CREATE POLICY "pedidos_repartidor_select"
+  ON public.pedidos_entregas FOR SELECT
+  USING (
+    repartidor_id IN (
+      SELECT id FROM public.repartidores_datos WHERE profile_id = auth.uid()
+    )
+  );
+
+CREATE POLICY "pedidos_repartidor_update"
+  ON public.pedidos_entregas FOR UPDATE
+  USING (
+    repartidor_id IN (
+      SELECT id FROM public.repartidores_datos WHERE profile_id = auth.uid()
+    )
+  );
+
+-- ── PEDIDO_ITEMS ───────────────────────────────
+ALTER TABLE public.pedido_items ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "pedido_items_select"
+  ON public.pedido_items FOR SELECT
+  USING (
+    pedido_id IN (
+      SELECT id FROM public.pedidos_entregas
+      WHERE cliente_id = auth.uid()
+         OR comercio_id IN (SELECT id FROM public.comercios_datos WHERE profile_id = auth.uid())
+         OR repartidor_id IN (SELECT id FROM public.repartidores_datos WHERE profile_id = auth.uid())
+    )
+  );
+
+CREATE POLICY "pedido_items_insert"
+  ON public.pedido_items FOR INSERT
+  WITH CHECK (
+    pedido_id IN (
+      SELECT id FROM public.pedidos_entregas WHERE cliente_id = auth.uid()
+    )
+  );
+
+-- ── REPORTES_PAGO ──────────────────────────────
+ALTER TABLE public.reportes_pago ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "reportes_pago_cliente"
+  ON public.reportes_pago FOR ALL
+  USING (cliente_id = auth.uid())
+  WITH CHECK (cliente_id = auth.uid());
+
+CREATE POLICY "reportes_pago_comercio_select"
+  ON public.reportes_pago FOR SELECT
+  USING (
+    pedido_id IN (
+      SELECT id FROM public.pedidos_entregas
+      WHERE comercio_id IN (
+        SELECT id FROM public.comercios_datos WHERE profile_id = auth.uid()
+      )
+    )
+  );
+
+CREATE POLICY "reportes_pago_comercio_update"
+  ON public.reportes_pago FOR UPDATE
+  USING (
+    pedido_id IN (
+      SELECT id FROM public.pedidos_entregas
+      WHERE comercio_id IN (
+        SELECT id FROM public.comercios_datos WHERE profile_id = auth.uid()
+      )
+    )
+  );
+
+-- ─────────────────────────────────────────────
+-- 13. VISTA: Valoración promedio por repartidor
+-- ─────────────────────────────────────────────
+CREATE OR REPLACE VIEW public.repartidor_valoracion_promedio AS
+SELECT
+  rd.id           AS repartidor_id,
+  p.nombre_completo,
+  COUNT(pe.id)    AS total_entregas,
+  ROUND(AVG(pe.valoracion)::NUMERIC, 2) AS valoracion_promedio
+FROM public.repartidores_datos rd
+JOIN public.profiles p ON p.id = rd.profile_id
+LEFT JOIN public.pedidos_entregas pe
+  ON pe.repartidor_id = rd.id AND pe.valoracion IS NOT NULL
+GROUP BY rd.id, p.nombre_completo;
+
+-- ─────────────────────────────────────────────
+-- 14. VISTA: Ventas por comercio
+-- ─────────────────────────────────────────────
+CREATE OR REPLACE VIEW public.comercio_ventas_resumen AS
+SELECT
+  cd.id              AS comercio_id,
+  cd.nombre_comercial,
+  COUNT(pe.id)       AS total_pedidos,
+  SUM(CASE WHEN pe.estado = 'entregado' THEN pe.total_usd ELSE 0 END) AS ingresos_usd,
+  COUNT(CASE WHEN pe.estado = 'entregado' THEN 1 END)                 AS pedidos_completados,
+  COUNT(CASE WHEN pe.estado = 'cancelado' THEN 1 END)                 AS pedidos_cancelados
+FROM public.comercios_datos cd
+LEFT JOIN public.pedidos_entregas pe ON pe.comercio_id = cd.id
+GROUP BY cd.id, cd.nombre_comercial;
+
+-- ─────────────────────────────────────────────
+-- FIN DEL SCHEMA
+-- ─────────────────────────────────────────────

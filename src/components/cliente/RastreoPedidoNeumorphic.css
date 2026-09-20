@@ -1,0 +1,199 @@
+/* ==========================================================================
+   ESTILO VISUAL: DARK NEUMORPHISM (SOFT UI DARK)
+   Levant — Panel de Rastreo en Tiempo Real y Chat
+   ========================================================================== */
+
+/* Variables de Color y Sombras Neumórficas */
+:root {
+  --neu-bg-base: #141418;
+  --neu-surface: #1e1e24;
+  --neu-surface-hover: #22222a;
+  --neu-surface-active: #19191e;
+  
+  /* Elevación Externa Neumórfica (Luz sutil arriba-izq, Sombra profunda abajo-der) */
+  --neu-shadow-flat: 8px 8px 18px #0b0b0e, -8px -8px 18px #272732;
+  --neu-shadow-sm: 4px 4px 10px #0c0c0f, -4px -4px 10px #24242e;
+  --neu-shadow-hover: 10px 10px 22px #0a0a0d, -10px -10px 22px #2a2a36;
+  
+  /* Depresión Interna Neumórfica (Inset / Pressed) */
+  --neu-shadow-inset: inset 4px 4px 8px #0c0c0f, inset -4px -4px 8px #262630;
+  --neu-shadow-inset-deep: inset 6px 6px 12px #09090c, inset -6px -6px 12px #282834;
+
+  /* Acentos de Alto Contraste */
+  --neu-accent-emerald: #10b981;
+  --neu-accent-emerald-glow: 0 0 20px rgba(16, 185, 129, 0.4);
+  --neu-accent-amber: #f59e0b;
+  --neu-accent-amber-glow: 0 0 20px rgba(245, 158, 11, 0.4);
+}
+
+.neu-panel-container {
+  background-color: var(--neu-bg-base);
+  min-height: 100%;
+  color: #e4e4e7;
+}
+
+/* Tarjetas y Contenedores Neumórficos */
+.neu-card {
+  background-color: var(--neu-surface);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  box-shadow: var(--neu-shadow-flat);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.neu-card:hover {
+  box-shadow: var(--neu-shadow-hover);
+}
+
+.neu-card-inset {
+  background-color: #17171d;
+  border: 1px solid rgba(255, 255, 255, 0.03);
+  box-shadow: var(--neu-shadow-inset);
+}
+
+/* Badges e Iconos Neumórficos */
+.neu-badge {
+  background-color: var(--neu-surface);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  box-shadow: var(--neu-shadow-sm);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.neu-badge-inset {
+  background-color: #16161b;
+  box-shadow: var(--neu-shadow-inset);
+}
+
+/* Icon Squircle Cálido / Ámbar exactamente como en el diseño de referencia */
+.neu-icon-badge-amber {
+  width: 52px;
+  height: 52px;
+  border-radius: 16px;
+  background: #38281a;
+  border: 1px solid rgba(245, 158, 11, 0.28);
+  box-shadow: 4px 4px 12px #0a080f, inset 1px 1px 2px rgba(251, 191, 36, 0.15);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.neu-tag-amber {
+  background: #38281a;
+  color: #fbbf24;
+  border: 1px solid rgba(245, 158, 11, 0.28);
+  border-radius: 9999px;
+  padding: 0.25rem 0.8rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+}
+
+/* Botones Neumórficos */
+.neu-button {
+  background-color: var(--neu-surface);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  box-shadow: var(--neu-shadow-flat);
+  transition: all 0.2s ease;
+  user-select: none;
+}
+
+.neu-button:hover {
+  background-color: var(--neu-surface-hover);
+  box-shadow: var(--neu-shadow-hover);
+}
+
+.neu-button:active {
+  background-color: var(--neu-surface-active);
+  box-shadow: var(--neu-shadow-inset);
+  transform: scale(0.98);
+}
+
+/* Botón Acento Esmeralda */
+.neu-button-emerald {
+  background: linear-gradient(145deg, #10b981, #059669);
+  color: #ffffff;
+  border: 1px solid rgba(52, 211, 153, 0.3);
+  box-shadow: 4px 4px 14px #0b0b0e, 0 0 16px rgba(16, 185, 129, 0.35);
+}
+
+.neu-button-emerald:hover {
+  box-shadow: 6px 6px 18px #09090c, 0 0 24px rgba(16, 185, 129, 0.55);
+}
+
+.neu-button-emerald:active {
+  box-shadow: inset 3px 3px 6px #047857, inset -3px -3px 6px #34d399;
+}
+
+/* Botón Acento Oro / Ámbar */
+.neu-button-gold {
+  background: linear-gradient(145deg, #f59e0b, #d97706);
+  color: #18181b;
+  font-weight: 700;
+  border: 1px solid rgba(251, 191, 36, 0.3);
+  box-shadow: 4px 4px 14px #0b0b0e, 0 0 16px rgba(245, 158, 11, 0.35);
+}
+
+.neu-button-gold:hover {
+  box-shadow: 6px 6px 18px #09090c, 0 0 24px rgba(245, 158, 11, 0.55);
+}
+
+/* Inputs Neumórficos */
+.neu-input {
+  background-color: #16161b;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  box-shadow: var(--neu-shadow-inset);
+  color: #f4f4f5;
+  transition: all 0.25s ease;
+}
+
+.neu-input:focus {
+  outline: none;
+  border-color: rgba(16, 185, 129, 0.5);
+  box-shadow: var(--neu-shadow-inset-deep), 0 0 12px rgba(16, 185, 129, 0.2);
+}
+
+/* Burbujas de Chat Neumórficas */
+.neu-bubble-client {
+  background: linear-gradient(135deg, #1e2824, #19221e);
+  border: 1px solid rgba(16, 185, 129, 0.2);
+  box-shadow: 4px 4px 10px #09090c, inset 1px 1px 2px rgba(52, 211, 153, 0.15);
+  color: #ecfdf5;
+}
+
+.neu-bubble-other {
+  background: #1b1b22;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  box-shadow: 4px 4px 10px #0b0b0e, inset 1px 1px 2px rgba(255, 255, 255, 0.03);
+  color: #e4e4e7;
+}
+
+/* Indicador de pulsación */
+@keyframes neu-pulse-emerald {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.6);
+  }
+  50% {
+    box-shadow: 0 0 0 10px rgba(16, 185, 129, 0);
+  }
+}
+
+.neu-pulse-active {
+  animation: neu-pulse-emerald 2s infinite;
+}
+
+/* Scrollbar estilizada para chat */
+.neu-chat-scroll::-webkit-scrollbar {
+  width: 5px;
+}
+.neu-chat-scroll::-webkit-scrollbar-track {
+  background: #141418;
+}
+.neu-chat-scroll::-webkit-scrollbar-thumb {
+  background: #2a2a35;
+  border-radius: 9999px;
+}
+.neu-chat-scroll::-webkit-scrollbar-thumb:hover {
+  background: #10b981;
+}

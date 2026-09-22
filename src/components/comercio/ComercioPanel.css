@@ -351,10 +351,561 @@
 .cp-spinner { display: inline-block; width: 16px; height: 16px; border: 2.5px solid rgba(255,255,255,.3); border-top-color: #fff; border-radius: 50%; animation: cp-spin .7s linear infinite; vertical-align: middle; }
 .cp-spinner-sm { display: inline-block; width: 12px; height: 12px; border: 2px solid rgba(108,99,255,.3); border-top-color: var(--cp-accent); border-radius: 50%; animation: cp-spin .7s linear infinite; vertical-align: middle; }
 
+/* ── Gestión de Pedidos ──────────────────────────────────────── */
+
+/* Filtros de estado */
+.cp-pedidos-filtros {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .4rem;
+  margin-bottom: 1.25rem;
+}
+
+.cp-filtro-btn {
+  display: flex;
+  align-items: center;
+  gap: .35rem;
+  padding: .45rem .85rem;
+  background: rgba(255,255,255,.04);
+  border: 1.5px solid var(--cp-border);
+  border-radius: 999px;
+  color: var(--cp-muted);
+  font-family: 'Inter', sans-serif;
+  font-size: .78rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--cp-trans);
+  white-space: nowrap;
+}
+
+.cp-filtro-btn:hover {
+  border-color: var(--cp-accent);
+  color: #c4b5fd;
+  background: rgba(108,99,255,.06);
+}
+
+.cp-filtro-btn--active {
+  background: rgba(108,99,255,.15);
+  border-color: var(--cp-accent);
+  color: #c4b5fd;
+}
+
+.cp-filtro-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: rgba(255,255,255,.08);
+  font-size: .68rem;
+  font-weight: 700;
+  color: var(--cp-muted);
+}
+
+.cp-filtro-btn--active .cp-filtro-count {
+  background: var(--cp-accent);
+  color: #fff;
+}
+
+/* Grid de tarjetas de pedidos */
+.cp-pedidos-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 1rem;
+}
+
+.cp-pedido-card {
+  background: var(--cp-surface);
+  border: 1.5px solid var(--cp-border);
+  border-radius: 14px;
+  padding: 1rem;
+  cursor: pointer;
+  transition: all .25s ease;
+}
+
+.cp-pedido-card:hover {
+  border-color: var(--cp-accent);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(108,99,255,.1);
+}
+
+.cp-pedido-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: .7rem;
+}
+
+.cp-pedido-card-id {
+  font-size: .78rem;
+  font-weight: 700;
+  color: var(--cp-muted);
+  font-family: 'JetBrains Mono', monospace, 'Inter';
+}
+
+.cp-pedido-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: .35rem;
+  margin-bottom: .7rem;
+}
+
+.cp-pedido-card-row {
+  display: flex;
+  align-items: center;
+  gap: .4rem;
+  font-size: .82rem;
+  color: #94a3b8;
+}
+
+.cp-pedido-card-dir {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cp-pedido-card-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-top: .65rem;
+  border-top: 1px solid rgba(255,255,255,.06);
+}
+
+.cp-pedido-card-date {
+  font-size: .72rem;
+  color: var(--cp-muted);
+}
+
+.cp-pedido-card-total {
+  font-size: 1rem;
+  font-weight: 800;
+  color: var(--cp-green);
+}
+
+/* Card content layout con ranura de repartidor */
+.cp-pedido-card-content {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.85rem;
+  margin-bottom: 0.75rem;
+}
+
+.cp-pedido-card-content .cp-pedido-card-body {
+  flex: 1;
+  min-width: 0;
+  margin-bottom: 0;
+}
+
+/* Recuadro de selección de repartidor en la tarjeta (espacio indicado por el usuario) */
+.cp-card-rep-box {
+  width: 175px;
+  flex-shrink: 0;
+  background: rgba(108, 99, 255, 0.04);
+  border: 1px solid rgba(108, 99, 255, 0.22);
+  border-radius: 10px;
+  padding: 0.5rem 0.6rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  transition: all 0.2s ease;
+}
+
+.cp-card-rep-box:hover {
+  border-color: var(--cp-accent);
+  background: rgba(108, 99, 255, 0.08);
+  box-shadow: 0 4px 12px rgba(108, 99, 255, 0.12);
+}
+
+.cp-card-rep-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #c4b5fd;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.cp-rep-dot-active {
+  color: #10b981;
+  font-size: 0.75rem;
+  animation: cp-pulse-dot 2s infinite;
+}
+
+@keyframes cp-pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.cp-rep-select {
+  width: 100%;
+  background: #141721;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 7px;
+  padding: 0.35rem 0.45rem;
+  font-size: 0.74rem;
+  color: #f1f5f9;
+  outline: none;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.cp-rep-select:focus {
+  border-color: var(--cp-accent);
+  box-shadow: 0 0 0 2px rgba(108, 99, 255, 0.2);
+}
+
+.cp-rep-select option {
+  background: #1e2230;
+  color: #f1f5f9;
+}
+
+.cp-rep-select--assigned {
+  border-color: rgba(16, 185, 129, 0.45);
+  background: rgba(16, 185, 129, 0.05);
+}
+
+.cp-card-rep-status {
+  font-size: 0.68rem;
+  color: #fbbf24;
+  font-style: italic;
+}
+
+.cp-card-rep-name {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: #10b981;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Modal Repartidor Section */
+.cp-modal-rep-section {
+  background: rgba(108, 99, 255, 0.05);
+  border: 1px solid rgba(108, 99, 255, 0.2);
+  border-radius: 12px;
+  padding: 0.85rem 1rem;
+  margin-bottom: 1.15rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.cp-modal-rep-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.cp-modal-rep-label {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #c4b5fd;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.cp-modal-rep-phone {
+  font-size: 0.78rem;
+  color: #60a5fa;
+  text-decoration: none;
+  font-weight: 600;
+  transition: color 0.2s;
+}
+
+.cp-modal-rep-phone:hover {
+  color: #93c5fd;
+  text-decoration: underline;
+}
+
+.cp-modal-rep-row {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+}
+
+.cp-rep-select--modal {
+  flex: 1;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.84rem;
+  background: #141721;
+}
+
+.cp-rep-unassign-btn {
+  padding: 0.48rem 0.75rem;
+  background: rgba(248, 113, 113, 0.12);
+  border: 1px solid rgba(248, 113, 113, 0.3);
+  color: #fca5a5;
+  border-radius: 7px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.cp-rep-unassign-btn:hover:not(:disabled) {
+  background: rgba(248, 113, 113, 0.25);
+  border-color: #f87171;
+  color: #fff;
+}
+
+.cp-rep-saving-modal {
+  font-size: 0.72rem;
+  color: #fbbf24;
+  font-style: italic;
+}
+
+@media (max-width: 480px) {
+  .cp-pedido-card-content {
+    flex-direction: column;
+    gap: 0.65rem;
+  }
+  .cp-card-rep-box {
+    width: 100%;
+  }
+}
+
+/* Modal wide variant */
+.cp-modal--wide {
+  max-width: 560px;
+}
+
+/* Info grid dentro del modal de pedido */
+.cp-pedido-info-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: .65rem;
+  margin-bottom: 1.25rem;
+}
+
+.cp-pedido-info-item {
+  display: flex;
+  flex-direction: column;
+  gap: .15rem;
+}
+
+.cp-pedido-info-label {
+  font-size: .72rem;
+  font-weight: 600;
+  color: var(--cp-muted);
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+
+.cp-pedido-info-value {
+  font-size: .88rem;
+  color: var(--cp-text);
+  font-weight: 500;
+}
+
+/* Estado section */
+.cp-pedido-estado-section {
+  display: flex;
+  align-items: center;
+  gap: .75rem;
+  margin-bottom: 1rem;
+  padding: .75rem;
+  background: rgba(255,255,255,.03);
+  border: 1px solid rgba(255,255,255,.06);
+  border-radius: 10px;
+}
+
+.cp-pedido-estado-label {
+  font-size: .82rem;
+  color: var(--cp-muted);
+  font-weight: 600;
+}
+
+.cp-badge--lg {
+  font-size: .85rem;
+  padding: .35rem .9rem;
+}
+
+/* Acciones de cambio de estado */
+.cp-pedido-acciones {
+  margin-bottom: 1.25rem;
+}
+
+.cp-pedido-acciones-label {
+  display: block;
+  font-size: .78rem;
+  font-weight: 600;
+  color: var(--cp-muted);
+  margin-bottom: .5rem;
+}
+
+.cp-pedido-acciones-btns {
+  display: flex;
+  gap: .5rem;
+  flex-wrap: wrap;
+}
+
+.cp-estado-btn {
+  padding: .5rem 1rem;
+  border: none;
+  border-radius: 10px;
+  font-family: 'Inter', sans-serif;
+  font-size: .82rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all .2s;
+  display: flex;
+  align-items: center;
+  gap: .3rem;
+}
+
+.cp-estado-btn:disabled {
+  opacity: .6;
+  cursor: not-allowed;
+}
+
+.cp-estado-btn--confirmar {
+  background: rgba(16,185,129,.15);
+  color: #6ee7b7;
+}
+.cp-estado-btn--confirmar:hover:not(:disabled) {
+  background: rgba(16,185,129,.25);
+}
+
+.cp-estado-btn--cancelar {
+  background: rgba(248,113,113,.12);
+  color: #fca5a5;
+}
+.cp-estado-btn--cancelar:hover:not(:disabled) {
+  background: rgba(248,113,113,.2);
+}
+
+.cp-estado-btn--preparar {
+  background: rgba(59,130,246,.15);
+  color: #93c5fd;
+}
+.cp-estado-btn--preparar:hover:not(:disabled) {
+  background: rgba(59,130,246,.25);
+}
+
+.cp-estado-btn--enviar {
+  background: rgba(139,92,246,.15);
+  color: #c4b5fd;
+}
+.cp-estado-btn--enviar:hover:not(:disabled) {
+  background: rgba(139,92,246,.25);
+}
+
+.cp-estado-btn--entregar {
+  background: rgba(16,185,129,.15);
+  color: #6ee7b7;
+}
+.cp-estado-btn--entregar:hover:not(:disabled) {
+  background: rgba(16,185,129,.25);
+}
+
+/* Items del pedido en modal */
+.cp-pedido-items-section {
+  margin-top: .5rem;
+}
+
+.cp-pedido-items-title {
+  font-size: .9rem;
+  font-weight: 700;
+  color: var(--cp-text);
+  margin-bottom: .65rem;
+  padding-bottom: .4rem;
+  border-bottom: 1px solid rgba(255,255,255,.06);
+}
+
+.cp-pedido-items-list {
+  display: flex;
+  flex-direction: column;
+  gap: .45rem;
+  margin-bottom: .85rem;
+}
+
+.cp-pedido-item {
+  display: flex;
+  align-items: center;
+  gap: .7rem;
+  padding: .55rem .65rem;
+  background: rgba(255,255,255,.03);
+  border: 1px solid rgba(255,255,255,.06);
+  border-radius: 10px;
+}
+
+.cp-pedido-item-img {
+  width: 38px;
+  height: 38px;
+  border-radius: 8px;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.cp-pedido-item-placeholder {
+  width: 38px;
+  height: 38px;
+  border-radius: 8px;
+  background: rgba(108,99,255,.1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1rem;
+  flex-shrink: 0;
+}
+
+.cp-pedido-item-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.cp-pedido-item-name {
+  font-size: .82rem;
+  font-weight: 600;
+  color: var(--cp-text);
+}
+
+.cp-pedido-item-meta {
+  font-size: .72rem;
+  color: var(--cp-muted);
+}
+
+.cp-pedido-item-sub {
+  font-size: .88rem;
+  font-weight: 700;
+  color: var(--cp-green);
+  flex-shrink: 0;
+}
+
+.cp-pedido-total-final {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: .75rem .85rem;
+  background: rgba(16,185,129,.06);
+  border: 1px solid rgba(16,185,129,.15);
+  border-radius: 10px;
+  font-size: .95rem;
+  font-weight: 700;
+  color: var(--cp-text);
+}
+
+.cp-pedido-total-value {
+  font-size: 1.15rem;
+  color: var(--cp-green);
+}
+
 @media (max-width: 640px) {
   .cp-section { padding: 1.25rem 1rem; }
   .cp-row2  { grid-template-columns: 1fr; }
   .cp-kpis  { grid-template-columns: 1fr 1fr; }
+  .cp-pedidos-grid { grid-template-columns: 1fr; }
+  .cp-pedido-info-grid { grid-template-columns: 1fr; }
+  .cp-pedido-acciones-btns { flex-direction: column; }
+  .cp-estado-btn { width: 100%; justify-content: center; }
 }
 @media (max-width: 380px) {
   .cp-kpis { grid-template-columns: 1fr; }

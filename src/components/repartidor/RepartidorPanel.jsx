@@ -27,7 +27,7 @@ const Stars = ({ value }) => (
   </span>
 );
 
-export default function RepartidorPanel({ session }) {
+export default function RepartidorPanel({ session, initialTab = 'pedidos' }) {
   // ── Estado del repartidor ────────────────────────────────────
   const [repData, setRepData]   = useState(null);   // row en repartidores_datos
   const [form, setForm]         = useState({ cedula: '', vehiculo: 'moto', placa: '' });
@@ -42,7 +42,17 @@ export default function RepartidorPanel({ session }) {
   const [valoracion, setValoracion] = useState(null); // de la vista
   const [loadingHist, setLoadingHist] = useState(true);
 
-  const [activeTab, setActiveTab] = useState('perfil'); // 'perfil' | 'historial'
+  // ── Pedidos Asignados ────────────────────────────────────────
+  const [pedidosAsignados, setPedidosAsignados] = useState([]);
+  const [loadingPedidos, setLoadingPedidos]     = useState(true);
+  const [updatingPedidoId, setUpdatingPedidoId] = useState(null);
+  const [filtroPedidos, setFiltroPedidos]       = useState('activos');
+
+  const [activeTab, setActiveTab] = useState(initialTab);
+
+  useEffect(() => {
+    if (initialTab) setActiveTab(initialTab);
+  }, [initialTab]);
 
   // ── Cargar datos ─────────────────────────────────────────────
   useEffect(() => {
@@ -53,7 +63,7 @@ export default function RepartidorPanel({ session }) {
         .from('repartidores_datos')
         .select('*')
         .eq('profile_id', uid)
-        .single();
+        .maybeSingle();
 
       if (rd) {
         setRepData(rd);
@@ -63,6 +73,41 @@ export default function RepartidorPanel({ session }) {
     };
     load();
   }, [session]);
+
+  // ── Cargar pedidos asignados ─────────────────────────────────
+  const fetchPedidosAsignados = useCallback(async () => {
+    if (!repData?.id) return;
+    setLoadingPedidos(true);
+    try {
+      const { data, error } = await supabase
+        .from('pedidos_entregas')
+        .select(`
+          id, estado, total_usd, created_at, updated_at, direccion_entrega,
+          comercios_datos (
+            id, nombre_comercial, direccion
+          ),
+          profiles!pedidos_entregas_cliente_id_fkey (
+            id, nombre_completo, telefono
+          ),
+          pedido_items (
+            id, cantidad, precio_usd, subtotal_usd,
+            productos ( nombre, imagen_url )
+          )
+        `)
+        .eq('repartidor_id', repData.id)
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.error('Error cargando pedidos asignados:', error);
+      } else {
+        setPedidosAsignados(data ?? []);
+      }
+    } catch (err) {
+      console.error('Error fetchPedidosAsignados:', err);
+    } finally {
+      setLoadingPedidos(false);
+    }
+  }, [repData?.id]);
 
   // ── Cargar historial y valoración ────────────────────────────
   const fetchHistorial = useCallback(async () => {
@@ -83,7 +128,7 @@ export default function RepartidorPanel({ session }) {
         .from('repartidor_valoracion_promedio')
         .select('*')
         .eq('repartidor_id', repData.id)
-        .single(),
+        .maybeSingle(),
     ]);
 
     setEntregas(list ?? []);
@@ -92,8 +137,43 @@ export default function RepartidorPanel({ session }) {
   }, [repData?.id]);
 
   useEffect(() => {
-    if (repData?.id && activeTab === 'historial') fetchHistorial();
-  }, [fetchHistorial, repData, activeTab]);
+    if (repData?.id) {
+      if (activeTab === 'pedidos') fetchPedidosAsignados();
+      if (activeTab === 'historial') fetchHistorial();
+    }
+  }, [fetchPedidosAsignados, fetchHistorial, repData, activeTab]);
+
+  // ── Cambiar estado del pedido (Recibir / Entregar) ─────────────
+  const cambiarEstadoPedido = async (pedidoId, nuevoEstado) => {
+    setUpdatingPedidoId(pedidoId);
+    try {
+      const { error } = await supabase
+        .from('pedidos_entregas')
+        .update({
+          estado: nuevoEstado,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', pedidoId)
+        .eq('repartidor_id', repData.id);
+
+      if (error) {
+        console.error('Error actualizando pedido:', error);
+        alert('Error al actualizar pedido: ' + error.message);
+      } else {
+        setPedidosAsignados(prev => prev.map(p => (
+          p.id === pedidoId ? { ...p, estado: nuevoEstado } : p
+        )));
+        if (nuevoEstado === 'entregado') {
+          fetchHistorial();
+        }
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Error inesperado al actualizar pedido.');
+    } finally {
+      setUpdatingPedidoId(null);
+    }
+  };
 
   // ── Toggle disponibilidad ────────────────────────────────────
   const toggleDisponible = async () => {
@@ -162,6 +242,7 @@ export default function RepartidorPanel({ session }) {
   const entregadas  = entregas.filter(e => e.estado === 'entregado').length;
   const enCamino    = entregas.filter(e => e.estado === 'en_camino').length;
   const ingresos    = entregas.filter(e => e.estado === 'entregado').reduce((s, e) => s + (e.total_usd ?? 0), 0);
+  const pedidosActivosCount = pedidosAsignados.filter(p => p.estado !== 'entregado' && p.estado !== 'cancelado').length;
 
   // ── JSX ──────────────────────────────────────────────────────
   return (
@@ -194,12 +275,223 @@ export default function RepartidorPanel({ session }) {
 
       {/* ── Tabs ── */}
       <div className="rp-tabs" role="tablist">
-        {[['perfil','👤 Mi perfil'],['historial','📋 Historial']].map(([id, label]) => (
+        {[
+          ['pedidos', `📦 Pedidos Asignados ${pedidosActivosCount > 0 ? `(${pedidosActivosCount})` : ''}`],
+          ['historial', '📋 Historial'],
+          ['perfil', '👤 Mi perfil']
+        ].map(([id, label]) => (
           <button key={id} id={`rptab-${id}`} role="tab" aria-selected={activeTab === id}
             className={`rp-tab ${activeTab === id ? 'rp-tab--active' : ''}`}
             onClick={() => setActiveTab(id)}>{label}</button>
         ))}
       </div>
+
+      {/* ═══ TAB: PEDIDOS ASIGNADOS ═══ */}
+      {activeTab === 'pedidos' && (
+        <div className="rp-section">
+          <div className="rp-section-header">
+            <div>
+              <h2 className="rp-section-title">📦 Pedidos Asignados</h2>
+              <p className="rp-section-sub">Pedidos asignados por comercios listos para retiro y entrega</p>
+            </div>
+            <button className="rp-btn-refresh-icon" onClick={fetchPedidosAsignados} title="Refrescar pedidos">
+              ↻
+            </button>
+          </div>
+
+          {!repData?.id ? (
+            <div className="rp-info-box">
+              ⚠️ Completa primero tu perfil (cédula y vehículo) en la pestaña <strong>Mi perfil</strong> para gestionar pedidos.
+            </div>
+          ) : (
+            <>
+              {/* Filtros de pedidos */}
+              <div className="rp-filtros-bar">
+                {[
+                  { id: 'activos',   label: '⚡ Activos' },
+                  { id: 'asignados', label: '📥 Por Recibir' },
+                  { id: 'en_camino', label: '🚚 En camino' },
+                  { id: 'entregado', label: '✅ Entregados' },
+                  { id: 'todos',     label: '📋 Todos' },
+                ].map(f => {
+                  let count = 0;
+                  if (f.id === 'activos')   count = pedidosAsignados.filter(p => p.estado !== 'entregado' && p.estado !== 'cancelado').length;
+                  if (f.id === 'asignados') count = pedidosAsignados.filter(p => p.estado === 'pendiente' || p.estado === 'confirmado' || p.estado === 'en_preparacion').length;
+                  if (f.id === 'en_camino') count = pedidosAsignados.filter(p => p.estado === 'en_camino').length;
+                  if (f.id === 'entregado') count = pedidosAsignados.filter(p => p.estado === 'entregado').length;
+                  if (f.id === 'todos')     count = pedidosAsignados.length;
+
+                  return (
+                    <button
+                      key={f.id}
+                      className={`rp-filtro-btn ${filtroPedidos === f.id ? 'rp-filtro-btn--active' : ''}`}
+                      onClick={() => setFiltroPedidos(f.id)}
+                    >
+                      {f.label} <span className="rp-filtro-badge">{count}</span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {loadingPedidos ? (
+                <div className="rp-center"><span className="rp-loader" /></div>
+              ) : (() => {
+                const filtrados = pedidosAsignados.filter(p => {
+                  if (filtroPedidos === 'activos')   return p.estado !== 'entregado' && p.estado !== 'cancelado';
+                  if (filtroPedidos === 'asignados') return p.estado === 'pendiente' || p.estado === 'confirmado' || p.estado === 'en_preparacion';
+                  if (filtroPedidos === 'en_camino') return p.estado === 'en_camino';
+                  if (filtroPedidos === 'entregado') return p.estado === 'entregado';
+                  return true;
+                });
+
+                if (filtrados.length === 0) {
+                  return (
+                    <div className="rp-empty-pedidos">
+                      <span className="rp-empty-icon">🛵</span>
+                      <p className="rp-empty-title">
+                        {filtroPedidos === 'activos' 
+                          ? 'No tienes pedidos asignados activos por el momento.' 
+                          : `No hay pedidos con el filtro "${filtroPedidos}".`}
+                      </p>
+                      <p className="rp-empty-sub">
+                        Cuando un comercio te asigne un pedido, aparecerá en esta lista con los botones de recepción y entrega.
+                      </p>
+                      <button className="rp-btn-refresh" onClick={fetchPedidosAsignados}>↻ Refrescar lista</button>
+                    </div>
+                  );
+                }
+
+                return (
+                  <div className="rp-pedidos-list">
+                    {filtrados.map(ped => {
+                      const badge = ESTADO_BADGE[ped.estado] ?? { label: ped.estado, color: '#64748b' };
+                      const isAsignado = ped.estado === 'pendiente' || ped.estado === 'confirmado' || ped.estado === 'en_preparacion';
+                      const isEnCamino = ped.estado === 'en_camino';
+                      const isEntregado = ped.estado === 'entregado';
+
+                      return (
+                        <div key={ped.id} className={`rp-pedido-card ${isEnCamino ? 'rp-pedido-card--en-camino' : ''}`}>
+                          {/* Top */}
+                          <div className="rp-card-header">
+                            <div className="rp-card-id-wrap">
+                              <span className="rp-card-id">#{ped.id.slice(0, 8)}</span>
+                              <span className="rp-card-date">
+                                {new Date(ped.created_at).toLocaleDateString('es-VE', {
+                                  day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit'
+                                })}
+                              </span>
+                            </div>
+                            <span className="rp-badge" style={{ '--bc': badge.color }}>
+                              {badge.label}
+                            </span>
+                          </div>
+
+                          {/* Ruta Comercio -> Cliente */}
+                          <div className="rp-route-box">
+                            {/* Punto 1: Comercio (Retiro) */}
+                            <div className="rp-route-point">
+                              <div className="rp-route-marker rp-route-marker--comercio">🏪</div>
+                              <div className="rp-route-details">
+                                <span className="rp-route-type">PUNTO DE RETIRO (COMERCIO)</span>
+                                <strong className="rp-route-name">{ped.comercios_datos?.nombre_comercial || 'Comercio asignado'}</strong>
+                                <span className="rp-route-addr">{ped.comercios_datos?.direccion || 'Dirección no especificada'}</span>
+                              </div>
+                            </div>
+
+                            <div className="rp-route-connector" />
+
+                            {/* Punto 2: Cliente (Entrega) */}
+                            <div className="rp-route-point">
+                              <div className="rp-route-marker rp-route-marker--cliente">📍</div>
+                              <div className="rp-route-details">
+                                <span className="rp-route-type">PUNTO DE ENTREGA (CLIENTE)</span>
+                                <strong className="rp-route-name">{ped.profiles?.nombre_completo || 'Cliente'}</strong>
+                                <span className="rp-route-addr">{ped.direccion_entrega}</span>
+                                {ped.profiles?.telefono && (
+                                  <a href={`tel:${ped.profiles.telefono}`} className="rp-route-phone">
+                                    📞 Llamar: {ped.profiles.telefono}
+                                  </a>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Items resumen */}
+                          {ped.pedido_items && ped.pedido_items.length > 0 && (
+                            <div className="rp-items-summary">
+                              <span className="rp-items-title">
+                                📦 {ped.pedido_items.length} producto{ped.pedido_items.length !== 1 ? 's' : ''}:
+                              </span>
+                              <div className="rp-items-chips">
+                                {ped.pedido_items.map(it => (
+                                  <span key={it.id} className="rp-item-chip">
+                                    {it.cantidad}x {it.productos?.nombre || 'Item'}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Footer con Total y Botón de Acción */}
+                          <div className="rp-card-footer">
+                            <div className="rp-total-wrap">
+                              <span className="rp-total-label">Total del pedido</span>
+                              <span className="rp-total-amount">${ped.total_usd?.toFixed(2)}</span>
+                            </div>
+
+                            <div className="rp-actions-wrap">
+                              {/* Botón: Recibir pedido / Iniciar camino */}
+                              {isAsignado && (
+                                <button
+                                  className="rp-btn-action rp-btn-action--recibir"
+                                  disabled={updatingPedidoId === ped.id}
+                                  onClick={() => cambiarEstadoPedido(ped.id, 'en_camino')}
+                                >
+                                  {updatingPedidoId === ped.id ? (
+                                    <span className="rp-spinner-sm" />
+                                  ) : (
+                                    <>📥 Recibir Pedido / Iniciar Entrega</>
+                                  )}
+                                </button>
+                              )}
+
+                              {/* Botón: Marcar como entregado */}
+                              {isEnCamino && (
+                                <button
+                                  className="rp-btn-action rp-btn-action--entregar"
+                                  disabled={updatingPedidoId === ped.id}
+                                  onClick={() => {
+                                    if (confirm('¿Confirmas que entregaste este pedido al cliente?')) {
+                                      cambiarEstadoPedido(ped.id, 'entregado');
+                                    }
+                                  }}
+                                >
+                                  {updatingPedidoId === ped.id ? (
+                                    <span className="rp-spinner-sm" />
+                                  ) : (
+                                    <>✅ Marcar como Entregado</>
+                                  )}
+                                </button>
+                              )}
+
+                              {/* Entregado info */}
+                              {isEntregado && (
+                                <span className="rp-status-completed">
+                                  🎉 Pedido entregado con éxito
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
+            </>
+          )}
+        </div>
+      )}
 
       {/* ═══ TAB: PERFIL ═══ */}
       {activeTab === 'perfil' && (

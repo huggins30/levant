@@ -7,6 +7,19 @@ const CATEGORIAS = [
   'ropa','ferreteria','panaderia','licoreria','otro',
 ];
 
+const CATEGORIAS_PRODUCTO = [
+  { id: 'comida', label: '🍔 Comida' },
+  { id: 'bebidas', label: '🥤 Bebidas' },
+  { id: 'postres', label: '🍰 Postres' },
+  { id: 'viveres', label: '🛒 Víveres / Supermercado' },
+  { id: 'tecnologia', label: '📱 Tecnología' },
+  { id: 'ropa', label: '👕 Ropa & Moda' },
+  { id: 'salud_belleza', label: '💊 Salud & Belleza' },
+  { id: 'ferreteria', label: '🛠 Ferretería' },
+  { id: 'hogar', label: '🏠 Hogar' },
+  { id: 'otro', label: '📦 Otro' },
+];
+
 const RIF_REGEX = /^(J|V|G|E)-[0-9]{8}-[0-9]$/;
 
 // ─── Sub-componente: Modal de Producto ────────────────────────────────────────
@@ -15,6 +28,7 @@ function ProductoModal({ producto, comercioId, onClose, onSaved }) {
   const [form, setForm]     = useState({
     nombre:      producto?.nombre      ?? '',
     descripcion: producto?.descripcion ?? '',
+    categoria:   producto?.categoria   ?? 'comida',
     precio_usd:  producto?.precio_usd  ?? '',
     stock:       producto?.stock       ?? 0,
     activo:      producto?.activo      ?? true,
@@ -51,6 +65,10 @@ function ProductoModal({ producto, comercioId, onClose, onSaved }) {
     e.preventDefault();
     const ve = validate();
     if (Object.keys(ve).length) { setErrors(ve); return; }
+    if (!comercioId) {
+      setErrors({ global: 'No se encontró el ID del comercio. Por favor guarda primero el perfil en "Mi Comercio".' });
+      return;
+    }
     setLoading(true);
 
     try {
@@ -69,6 +87,7 @@ function ProductoModal({ producto, comercioId, onClose, onSaved }) {
         comercio_id: comercioId,
         nombre:      form.nombre.trim(),
         descripcion: form.descripcion.trim() || null,
+        categoria:   form.categoria,
         precio_usd:  parseFloat(form.precio_usd),
         stock:       parseInt(form.stock),
         activo:      form.activo,
@@ -119,6 +138,16 @@ function ProductoModal({ producto, comercioId, onClose, onSaved }) {
             <input id="cp-nombre" name="nombre" type="text" placeholder="Ej: Hamburguesa Clásica"
               value={form.nombre} onChange={handleChange} />
             {errors.nombre && <span className="cp-error">{errors.nombre}</span>}
+          </div>
+
+          {/* Categoría */}
+          <div className="cp-field">
+            <label htmlFor="cp-categoria">Categoría del producto</label>
+            <select id="cp-categoria" name="categoria" value={form.categoria} onChange={handleChange}>
+              {CATEGORIAS_PRODUCTO.map(cat => (
+                <option key={cat.id} value={cat.id}>{cat.label}</option>
+              ))}
+            </select>
           </div>
 
           {/* Descripción */}
@@ -190,7 +219,17 @@ export default function ComercioPanel({ session }) {
   const [pedidos, setPedidos] = useState([]);
   const [loadingVentas, setLoadingVentas] = useState(true);
 
-  const [activeTab, setActiveTab] = useState('perfil'); // 'perfil' | 'productos' | 'ventas'
+  // ── Gestión de Pedidos ──────────────────────────────────────────
+  const [gPedidos, setGPedidos]           = useState([]);
+  const [loadingGPedidos, setLoadingGPedidos] = useState(true);
+  const [filtroEstado, setFiltroEstado]   = useState('todos');
+  const [pedidoDetalle, setPedidoDetalle] = useState(null);
+  const [updatingEstado, setUpdatingEstado] = useState(null);
+  const [repartidoresActivos, setRepartidoresActivos] = useState([]);
+  const [loadingRepartidores, setLoadingRepartidores] = useState(false);
+  const [assigningRepartidor, setAssigningRepartidor] = useState(null);
+
+  const [activeTab, setActiveTab] = useState('perfil'); // 'perfil' | 'productos' | 'pedidos' | 'ventas'
 
   // ── Cargar perfil ───────────────────────────────────────────────
   useEffect(() => {
@@ -199,16 +238,39 @@ export default function ComercioPanel({ session }) {
       const uid = session.user.id;
       const [{ data: p }, { data: c }] = await Promise.all([
         supabase.from('profiles').select('nombre_completo, telefono').eq('id', uid).single(),
-        supabase.from('comercios_datos').select('*').eq('profile_id', uid).single(),
+        supabase.from('comercios_datos').select('*').eq('profile_id', uid).maybeSingle(),
       ]);
-      setPerfil(c);
+
+      let comerData = c;
+
+      // Si no existe registro en comercios_datos aún para este usuario, lo creamos automáticamente
+      if (!comerData) {
+        const defaultName = p?.nombre_completo ? `Comercio de ${p.nombre_completo}` : 'Mi Comercio';
+        const { data: newCom } = await supabase
+          .from('comercios_datos')
+          .insert({
+            profile_id: uid,
+            nombre_comercial: defaultName,
+            direccion: 'Dirección por definir',
+            categoria: 'otro',
+            rif: 'J-00000000-0',
+          })
+          .select('*')
+          .maybeSingle();
+
+        if (newCom) {
+          comerData = newCom;
+        }
+      }
+
+      setPerfil(comerData);
       setPerfilForm({
         nombre_completo:  p?.nombre_completo  ?? '',
         telefono:         p?.telefono          ?? '',
-        nombre_comercial: c?.nombre_comercial  ?? '',
-        rif:              c?.rif               ?? '',
-        direccion:        c?.direccion         ?? '',
-        categoria:        c?.categoria         ?? 'otro',
+        nombre_comercial: comerData?.nombre_comercial  ?? '',
+        rif:              comerData?.rif               ?? '',
+        direccion:        comerData?.direccion         ?? '',
+        categoria:        comerData?.categoria         ?? 'otro',
       });
     };
     load();
@@ -248,26 +310,173 @@ export default function ComercioPanel({ session }) {
 
   useEffect(() => { if (perfil?.id && activeTab === 'ventas') fetchVentas(); }, [fetchVentas, perfil, activeTab]);
 
+  // ── Cargar pedidos para gestión ─────────────────────────────────
+  const fetchGPedidos = useCallback(async () => {
+    if (!perfil?.id) return;
+    setLoadingGPedidos(true);
+    const { data, error } = await supabase
+      .from('pedidos_entregas')
+      .select(`
+        id, estado, total_usd, direccion_entrega, created_at, updated_at, repartidor_id,
+        profiles!pedidos_entregas_cliente_id_fkey(nombre_completo, telefono),
+        repartidores_datos (
+          id, vehiculo, placa, disponible,
+          profiles ( id, nombre_completo, telefono )
+        ),
+        pedido_items (
+          id, cantidad, precio_usd, subtotal_usd,
+          productos ( nombre, imagen_url )
+        )
+      `)
+      .eq('comercio_id', perfil.id)
+      .order('created_at', { ascending: false })
+      .limit(100);
+    if (error) console.error('Error cargando pedidos:', error);
+    setGPedidos(data ?? []);
+    setLoadingGPedidos(false);
+  }, [perfil?.id]);
+
+  // ── Cargar repartidores activos ─────────────────────────────────
+  const fetchRepartidoresActivos = useCallback(async () => {
+    setLoadingRepartidores(true);
+    try {
+      const { data, error } = await supabase
+        .from('repartidores_datos')
+        .select(`
+          id, vehiculo, placa, disponible,
+          profiles ( id, nombre_completo, telefono )
+        `);
+
+      if (error) {
+        console.error('Error cargando repartidores:', error);
+      } else {
+        setRepartidoresActivos(data ?? []);
+      }
+    } catch (err) {
+      console.error('Error inesperado al cargar repartidores:', err);
+    } finally {
+      setLoadingRepartidores(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (perfil?.id && activeTab === 'pedidos') {
+      fetchGPedidos();
+      fetchRepartidoresActivos();
+    }
+  }, [fetchGPedidos, fetchRepartidoresActivos, perfil, activeTab]);
+
+  // ── Asignar repartidor a pedido ─────────────────────────────────
+  const assignRepartidor = async (pedidoId, repartidorId) => {
+    setAssigningRepartidor(pedidoId);
+    try {
+      const repIdVal = (repartidorId && repartidorId.trim() !== '') ? repartidorId : null;
+
+      const { error } = await supabase
+        .from('pedidos_entregas')
+        .update({ 
+          repartidor_id: repIdVal, 
+          updated_at: new Date().toISOString() 
+        })
+        .eq('id', pedidoId)
+        .eq('comercio_id', perfil.id);
+
+      if (error) {
+        console.error('Error asignando repartidor:', error);
+        alert('Error al asignar repartidor: ' + error.message);
+        return;
+      }
+
+      const repObj = repIdVal ? repartidoresActivos.find(r => r.id === repIdVal) : null;
+      const formattedRep = repObj ? {
+        id: repObj.id,
+        vehiculo: repObj.vehiculo,
+        placa: repObj.placa,
+        disponible: repObj.disponible,
+        profiles: repObj.profiles
+      } : null;
+
+      setGPedidos(prev => prev.map(p => {
+        if (p.id !== pedidoId) return p;
+        return {
+          ...p,
+          repartidor_id: repIdVal,
+          repartidores_datos: repIdVal ? (formattedRep || p.repartidores_datos) : null
+        };
+      }));
+
+      if (pedidoDetalle?.id === pedidoId) {
+        setPedidoDetalle(prev => ({
+          ...prev,
+          repartidor_id: repIdVal,
+          repartidores_datos: repIdVal ? (formattedRep || prev?.repartidores_datos) : null
+        }));
+      }
+    } catch (err) {
+      console.error('Error inesperado al asignar repartidor:', err);
+      alert('Error inesperado al asignar repartidor.');
+    } finally {
+      setAssigningRepartidor(null);
+    }
+  };
+
+  // ── Cambiar estado de pedido ────────────────────────────────────
+  const updateEstadoPedido = async (pedidoId, nuevoEstado) => {
+    setUpdatingEstado(pedidoId);
+    const { error } = await supabase
+      .from('pedidos_entregas')
+      .update({ estado: nuevoEstado, updated_at: new Date().toISOString() })
+      .eq('id', pedidoId)
+      .eq('comercio_id', perfil.id);
+    if (error) {
+      console.error('Error actualizando estado:', error);
+      alert('Error al actualizar el estado: ' + error.message);
+    } else {
+      setGPedidos(prev => prev.map(p => p.id === pedidoId ? { ...p, estado: nuevoEstado } : p));
+      if (pedidoDetalle?.id === pedidoId) setPedidoDetalle(prev => ({ ...prev, estado: nuevoEstado }));
+    }
+    setUpdatingEstado(null);
+  };
+
   // ── Guardar perfil ──────────────────────────────────────────────
+  const TELEFONO_REGEX = /^(0412|0414|0424|0416|0426)\d{7}$/;
+
   const savePerfil = async (e) => {
     e.preventDefault();
     const ve = {};
     if (!perfilForm.nombre_comercial.trim()) ve.nombre_comercial = 'Nombre comercial requerido.';
     if (!RIF_REGEX.test(perfilForm.rif))      ve.rif = 'Formato: J-12345678-9';
     if (!perfilForm.direccion.trim())          ve.direccion = 'Dirección requerida.';
+    if (perfilForm.telefono.trim() && !TELEFONO_REGEX.test(perfilForm.telefono.trim())) {
+      ve.telefono = 'Formato inválido. Ej: 04121234567 (0412/0414/0424/0416/0426)';
+    }
     if (Object.keys(ve).length) { setPerfilErrors(ve); return; }
 
     setPerfilLoading(true);
     setPerfilStatus(null);
     try {
       const uid = session.user.id;
+      const tel = perfilForm.telefono.trim() ? perfilForm.telefono.trim() : null;
+
       const { error: pErr } = await supabase.from('profiles')
-        .update({ nombre_completo: perfilForm.nombre_completo, telefono: perfilForm.telefono })
+        .update({ nombre_completo: perfilForm.nombre_completo.trim(), telefono: tel })
         .eq('id', uid);
       if (pErr) throw pErr;
 
+      const payload = {
+        profile_id:       uid,
+        nombre_comercial: perfilForm.nombre_comercial.trim(),
+        rif:              perfilForm.rif.trim(),
+        direccion:        perfilForm.direccion.trim(),
+        categoria:        perfilForm.categoria,
+      };
+
+      if (perfil?.id) {
+        payload.id = perfil.id;
+      }
+
       const { error: cErr } = await supabase.from('comercios_datos').upsert(
-        { profile_id: uid, nombre_comercial: perfilForm.nombre_comercial, rif: perfilForm.rif, direccion: perfilForm.direccion, categoria: perfilForm.categoria },
+        payload,
         { onConflict: 'profile_id' }
       );
       if (cErr) throw cErr;
@@ -277,7 +486,8 @@ export default function ComercioPanel({ session }) {
       const { data: c } = await supabase.from('comercios_datos').select('*').eq('profile_id', uid).single();
       setPerfil(c);
     } catch (err) {
-      setPerfilStatus('err');
+      console.error('Error guardando perfil:', err);
+      setPerfilStatus(err.message || 'Error al guardar.');
     } finally {
       setPerfilLoading(false);
     }
@@ -304,12 +514,21 @@ export default function ComercioPanel({ session }) {
 
   const ESTADO_BADGE = { pendiente:'#f59e0b', confirmado:'#6c63ff', en_preparacion:'#3b82f6', en_camino:'#8b5cf6', entregado:'#10b981', cancelado:'#f87171' };
 
+  const listaRepartidores = [...repartidoresActivos].sort((a, b) => {
+    if (a.disponible === b.disponible) {
+      const nameA = a.profiles?.nombre_completo || '';
+      const nameB = b.profiles?.nombre_completo || '';
+      return nameA.localeCompare(nameB);
+    }
+    return a.disponible ? -1 : 1;
+  });
+
   // ── JSX ─────────────────────────────────────────────────────────
   return (
     <div className="cp-wrapper">
       {/* Tabs */}
       <div className="cp-tabs" role="tablist">
-        {[['perfil','🏪 Mi Comercio'],['productos','📦 Productos'],['ventas','💰 Ventas']].map(([id, label]) => (
+        {[['perfil','🏪 Mi Comercio'],['productos','📦 Productos'],['pedidos','📋 Pedidos'],['ventas','💰 Ventas']].map(([id, label]) => (
           <button key={id} id={`cptab-${id}`} role="tab" aria-selected={activeTab === id}
             className={`cp-tab ${activeTab === id ? 'cp-tab--active' : ''}`}
             onClick={() => setActiveTab(id)}>{label}</button>
@@ -331,10 +550,14 @@ export default function ComercioPanel({ session }) {
                 <input id="cppf-nombre" name="nombre_completo" type="text" value={perfilForm.nombre_completo}
                   onChange={e => setPerfilForm(p => ({ ...p, nombre_completo: e.target.value }))} placeholder="Tu nombre" />
               </div>
-              <div className="cp-field">
+              <div className={`cp-field ${perfilErrors.telefono ? 'cp-field--err' : ''}`}>
                 <label htmlFor="cppf-tel">Teléfono</label>
                 <input id="cppf-tel" name="telefono" type="tel" value={perfilForm.telefono}
-                  onChange={e => setPerfilForm(p => ({ ...p, telefono: e.target.value }))} placeholder="04121234567" maxLength={11} />
+                  onChange={e => {
+                    setPerfilForm(p => ({ ...p, telefono: e.target.value }));
+                    if (perfilErrors.telefono) setPerfilErrors(p => ({ ...p, telefono: '' }));
+                  }} placeholder="04121234567" maxLength={11} />
+                {perfilErrors.telefono && <span className="cp-error">{perfilErrors.telefono}</span>}
               </div>
             </div>
 
@@ -370,8 +593,8 @@ export default function ComercioPanel({ session }) {
               {perfilErrors.direccion && <span className="cp-error">{perfilErrors.direccion}</span>}
             </div>
 
-            {perfilStatus === 'ok'  && <div className="cp-alert-ok">✅ Perfil guardado.</div>}
-            {perfilStatus === 'err' && <div className="cp-alert-err">❌ Error al guardar.</div>}
+            {perfilStatus === 'ok' && <div className="cp-alert-ok">✅ Perfil guardado.</div>}
+            {perfilStatus && perfilStatus !== 'ok' && <div className="cp-alert-err">❌ {perfilStatus}</div>}
 
             <button id="cp-perfil-save" type="submit" className="cp-btn-primary" disabled={perfilLoading}>
               {perfilLoading ? <span className="cp-spinner" /> : '💾 Guardar perfil'}
@@ -456,6 +679,292 @@ export default function ComercioPanel({ session }) {
               )}
             </>
           )}
+        </div>
+      )}
+
+      {/* ═══ TAB: PEDIDOS (GESTIÓN) ═══ */}
+      {activeTab === 'pedidos' && (
+        <div className="cp-section">
+          <div className="cp-section-header">
+            <span className="cp-section-icon">📋</span>
+            <div><h2 className="cp-section-title">Gestión de Pedidos</h2>
+              <p className="cp-section-sub">Administra los pedidos de tus clientes</p></div>
+            <button className="cp-btn-icon" onClick={fetchGPedidos} aria-label="Refrescar">↻</button>
+          </div>
+
+          {/* Filtros de estado */}
+          <div className="cp-pedidos-filtros">
+            {[
+              { id: 'todos',          label: '📋 Todos' },
+              { id: 'pendiente',      label: '🕐 Pendientes' },
+              { id: 'confirmado',     label: '✅ Confirmados' },
+              { id: 'en_preparacion', label: '👨‍🍳 En preparación' },
+              { id: 'en_camino',      label: '🚚 En camino' },
+              { id: 'entregado',      label: '📦 Entregados' },
+              { id: 'cancelado',      label: '❌ Cancelados' },
+            ].map(f => (
+              <button key={f.id}
+                className={`cp-filtro-btn ${filtroEstado === f.id ? 'cp-filtro-btn--active' : ''}`}
+                onClick={() => setFiltroEstado(f.id)}>
+                {f.label}
+                {f.id !== 'todos' && (
+                  <span className="cp-filtro-count">
+                    {gPedidos.filter(p => p.estado === f.id).length}
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
+
+          {loadingGPedidos ? (
+            <div className="cp-center"><span className="cp-loader" /></div>
+          ) : (() => {
+            const pedidosFiltrados = filtroEstado === 'todos'
+              ? gPedidos
+              : gPedidos.filter(p => p.estado === filtroEstado);
+
+            return pedidosFiltrados.length === 0 ? (
+              <div className="cp-empty"><span>📭</span><p>No hay pedidos {filtroEstado !== 'todos' ? `con estado "${filtroEstado.replace('_',' ')}"` : 'registrados'}.</p></div>
+            ) : (
+              <div className="cp-pedidos-grid">
+                {pedidosFiltrados.map(ped => (
+                  <div key={ped.id} className="cp-pedido-card" onClick={() => setPedidoDetalle(ped)}>
+                    <div className="cp-pedido-card-top">
+                      <div className="cp-pedido-card-id">#{ped.id.slice(0,8)}</div>
+                      <span className="cp-badge" style={{ '--badge-color': ESTADO_BADGE[ped.estado] ?? '#64748b' }}>
+                        {ped.estado?.replace('_',' ')}
+                      </span>
+                    </div>
+
+                    <div className="cp-pedido-card-content">
+                      <div className="cp-pedido-card-body">
+                        <div className="cp-pedido-card-row">
+                          <span>👤</span>
+                          <span>{ped.profiles?.nombre_completo ?? 'Cliente'}</span>
+                        </div>
+                        <div className="cp-pedido-card-row">
+                          <span>📍</span>
+                          <span className="cp-pedido-card-dir">{ped.direccion_entrega}</span>
+                        </div>
+                        <div className="cp-pedido-card-row">
+                          <span>📦</span>
+                          <span>{ped.pedido_items?.length ?? 0} producto{(ped.pedido_items?.length ?? 0) !== 1 ? 's' : ''}</span>
+                        </div>
+                      </div>
+
+                      {/* Repartidor Slot: Exactamente en el espacio indicado en la imagen */}
+                      <div className="cp-card-rep-box" onClick={e => e.stopPropagation()}>
+                        <div className="cp-card-rep-label">
+                          <span>🛵 Repartidor</span>
+                          {ped.repartidores_datos && (
+                            <span className="cp-rep-dot-active" title="Asignado">●</span>
+                          )}
+                        </div>
+                        <select
+                          className={`cp-rep-select ${ped.repartidor_id ? 'cp-rep-select--assigned' : ''}`}
+                          value={ped.repartidor_id || ''}
+                          disabled={ped.estado === 'entregado' || ped.estado === 'cancelado' || assigningRepartidor === ped.id}
+                          onChange={(e) => assignRepartidor(ped.id, e.target.value)}
+                        >
+                          <option value="">
+                            {loadingRepartidores ? 'Cargando...' : 'Seleccionar repartidor'}
+                          </option>
+                          {listaRepartidores.map(r => (
+                            <option key={r.id} value={r.id}>
+                              {r.disponible ? '🟢' : '⚪'} {r.profiles?.nombre_completo || 'Repartidor'} ({r.vehiculo || 'Moto'})
+                            </option>
+                          ))}
+                          {ped.repartidores_datos && !listaRepartidores.some(r => r.id === ped.repartidor_id) && (
+                            <option value={ped.repartidor_id}>
+                              🛵 {ped.repartidores_datos.profiles?.nombre_completo || 'Asignado'}
+                            </option>
+                          )}
+                        </select>
+                        {assigningRepartidor === ped.id && (
+                          <div className="cp-card-rep-status">Guardando...</div>
+                        )}
+                        {ped.repartidores_datos?.profiles?.nombre_completo && !assigningRepartidor && (
+                          <div className="cp-card-rep-name" title={ped.repartidores_datos.profiles.nombre_completo}>
+                            ✓ {ped.repartidores_datos.profiles.nombre_completo}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="cp-pedido-card-footer">
+                      <span className="cp-pedido-card-date">
+                        {new Date(ped.created_at).toLocaleDateString('es-VE', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' })}
+                      </span>
+                      <span className="cp-pedido-card-total">${ped.total_usd?.toFixed(2)}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            );
+          })()}
+        </div>
+      )}
+
+      {/* ── Modal detalle de pedido ── */}
+      {pedidoDetalle && (
+        <div className="cp-overlay" onClick={() => setPedidoDetalle(null)}>
+          <div className="cp-modal cp-modal--wide" onClick={e => e.stopPropagation()}>
+            <div className="cp-modal-header">
+              <h3>📋 Pedido #{pedidoDetalle.id.slice(0,8)}</h3>
+              <button className="cp-modal-close" onClick={() => setPedidoDetalle(null)}>✕</button>
+            </div>
+            <div className="cp-modal-form">
+              {/* Info del cliente */}
+              <div className="cp-pedido-info-grid">
+                <div className="cp-pedido-info-item">
+                  <span className="cp-pedido-info-label">👤 Cliente</span>
+                  <span className="cp-pedido-info-value">{pedidoDetalle.profiles?.nombre_completo ?? '—'}</span>
+                </div>
+                <div className="cp-pedido-info-item">
+                  <span className="cp-pedido-info-label">📞 Teléfono</span>
+                  <span className="cp-pedido-info-value">{pedidoDetalle.profiles?.telefono ?? 'No disponible'}</span>
+                </div>
+                <div className="cp-pedido-info-item">
+                  <span className="cp-pedido-info-label">📍 Dirección</span>
+                  <span className="cp-pedido-info-value">{pedidoDetalle.direccion_entrega}</span>
+                </div>
+                <div className="cp-pedido-info-item">
+                  <span className="cp-pedido-info-label">📅 Fecha</span>
+                  <span className="cp-pedido-info-value">
+                    {new Date(pedidoDetalle.created_at).toLocaleDateString('es-VE', { day:'2-digit', month:'long', year:'numeric', hour:'2-digit', minute:'2-digit' })}
+                  </span>
+                </div>
+              </div>
+
+              {/* Sección Repartidor en el Modal */}
+              <div className="cp-modal-rep-section">
+                <div className="cp-modal-rep-header">
+                  <span className="cp-modal-rep-label">🛵 Repartidor asignado:</span>
+                  {pedidoDetalle.repartidores_datos?.profiles?.telefono && (
+                    <a
+                      href={`tel:${pedidoDetalle.repartidores_datos.profiles.telefono}`}
+                      className="cp-modal-rep-phone"
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      📞 {pedidoDetalle.repartidores_datos.profiles.telefono}
+                    </a>
+                  )}
+                </div>
+                <div className="cp-modal-rep-row">
+                  <select
+                    className="cp-rep-select cp-rep-select--modal"
+                    value={pedidoDetalle.repartidor_id || ''}
+                    disabled={pedidoDetalle.estado === 'entregado' || pedidoDetalle.estado === 'cancelado' || assigningRepartidor === pedidoDetalle.id}
+                    onChange={(e) => assignRepartidor(pedidoDetalle.id, e.target.value)}
+                  >
+                    <option value="">-- Sin repartidor asignado (Seleccionar activo) --</option>
+                    {listaRepartidores.map(r => (
+                      <option key={r.id} value={r.id}>
+                        {r.disponible ? '🟢 Activo: ' : '⚪ Inactivo: '}
+                        {r.profiles?.nombre_completo || 'Repartidor'} ({r.vehiculo || 'Moto'}{r.placa ? ` · ${r.placa}` : ''})
+                      </option>
+                    ))}
+                    {pedidoDetalle.repartidores_datos && !listaRepartidores.some(r => r.id === pedidoDetalle.repartidor_id) && (
+                      <option value={pedidoDetalle.repartidor_id}>
+                        🛵 Asignado: {pedidoDetalle.repartidores_datos.profiles?.nombre_completo || 'Repartidor'}
+                      </option>
+                    )}
+                  </select>
+                  {pedidoDetalle.repartidor_id && pedidoDetalle.estado !== 'entregado' && pedidoDetalle.estado !== 'cancelado' && (
+                    <button
+                      type="button"
+                      className="cp-rep-unassign-btn"
+                      title="Desasignar repartidor"
+                      disabled={assigningRepartidor === pedidoDetalle.id}
+                      onClick={() => assignRepartidor(pedidoDetalle.id, '')}
+                    >
+                      ✕ Quitar
+                    </button>
+                  )}
+                </div>
+                {assigningRepartidor === pedidoDetalle.id && (
+                  <span className="cp-rep-saving-modal">Guardando asignación...</span>
+                )}
+              </div>
+
+              {/* Estado actual + acciones */}
+              <div className="cp-pedido-estado-section">
+                <span className="cp-pedido-estado-label">Estado actual:</span>
+                <span className="cp-badge cp-badge--lg" style={{ '--badge-color': ESTADO_BADGE[pedidoDetalle.estado] ?? '#64748b' }}>
+                  {pedidoDetalle.estado?.replace('_',' ')}
+                </span>
+              </div>
+
+              {/* Botones de cambio de estado */}
+              {pedidoDetalle.estado !== 'entregado' && pedidoDetalle.estado !== 'cancelado' && (
+                <div className="cp-pedido-acciones">
+                  <span className="cp-pedido-acciones-label">Cambiar estado:</span>
+                  <div className="cp-pedido-acciones-btns">
+                    {pedidoDetalle.estado === 'pendiente' && (
+                      <>
+                        <button className="cp-estado-btn cp-estado-btn--confirmar"
+                          disabled={updatingEstado === pedidoDetalle.id}
+                          onClick={() => updateEstadoPedido(pedidoDetalle.id, 'confirmado')}>
+                          {updatingEstado === pedidoDetalle.id ? <span className="cp-spinner" /> : '✅ Confirmar'}
+                        </button>
+                        <button className="cp-estado-btn cp-estado-btn--cancelar"
+                          disabled={updatingEstado === pedidoDetalle.id}
+                          onClick={() => { if(confirm('¿Cancelar este pedido?')) updateEstadoPedido(pedidoDetalle.id, 'cancelado'); }}>
+                          ❌ Cancelar
+                        </button>
+                      </>
+                    )}
+                    {pedidoDetalle.estado === 'confirmado' && (
+                      <button className="cp-estado-btn cp-estado-btn--preparar"
+                        disabled={updatingEstado === pedidoDetalle.id}
+                        onClick={() => updateEstadoPedido(pedidoDetalle.id, 'en_preparacion')}>
+                        {updatingEstado === pedidoDetalle.id ? <span className="cp-spinner" /> : '👨‍🍳 En preparación'}
+                      </button>
+                    )}
+                    {pedidoDetalle.estado === 'en_preparacion' && (
+                      <button className="cp-estado-btn cp-estado-btn--enviar"
+                        disabled={updatingEstado === pedidoDetalle.id}
+                        onClick={() => updateEstadoPedido(pedidoDetalle.id, 'en_camino')}>
+                        {updatingEstado === pedidoDetalle.id ? <span className="cp-spinner" /> : '🚚 Enviar / En camino'}
+                      </button>
+                    )}
+                    {pedidoDetalle.estado === 'en_camino' && (
+                      <button className="cp-estado-btn cp-estado-btn--entregar"
+                        disabled={updatingEstado === pedidoDetalle.id}
+                        onClick={() => updateEstadoPedido(pedidoDetalle.id, 'entregado')}>
+                        {updatingEstado === pedidoDetalle.id ? <span className="cp-spinner" /> : '📦 Marcar entregado'}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Items del pedido */}
+              <div className="cp-pedido-items-section">
+                <h4 className="cp-pedido-items-title">🛒 Productos del pedido</h4>
+                <div className="cp-pedido-items-list">
+                  {(pedidoDetalle.pedido_items ?? []).map(item => (
+                    <div key={item.id} className="cp-pedido-item">
+                      {item.productos?.imagen_url
+                        ? <img src={item.productos.imagen_url} alt={item.productos?.nombre} className="cp-pedido-item-img" />
+                        : <div className="cp-pedido-item-placeholder">📦</div>
+                      }
+                      <div className="cp-pedido-item-info">
+                        <p className="cp-pedido-item-name">{item.productos?.nombre ?? 'Producto'}</p>
+                        <p className="cp-pedido-item-meta">Cant: {item.cantidad} × ${item.precio_usd?.toFixed(2)}</p>
+                      </div>
+                      <span className="cp-pedido-item-sub">${item.subtotal_usd?.toFixed(2)}</span>
+                    </div>
+                  ))}
+                </div>
+                <div className="cp-pedido-total-final">
+                  <span>Total del pedido</span>
+                  <span className="cp-pedido-total-value">${pedidoDetalle.total_usd?.toFixed(2)}</span>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       )}
 

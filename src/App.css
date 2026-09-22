@@ -53,6 +53,7 @@ body {
   position: sticky;
   top: 0;
   height: 100vh;
+  max-height: 100vh;
   width: 220px;
   flex-shrink: 0;
   display: flex;
@@ -63,6 +64,8 @@ body {
   border-right: 1px solid #2a2d3a;
   padding: 1.25rem 1rem;
   z-index: 100;
+  overflow-y: auto;
+  box-sizing: border-box;
 }
 
 .app-sidebar-top {
@@ -74,7 +77,10 @@ body {
 .app-sidebar-bottom {
   display: flex;
   flex-direction: column;
-  gap: .6rem;
+  gap: .75rem;
+  margin-top: auto;
+  padding-top: 1rem;
+  border-top: 1px solid rgba(255,255,255,0.08);
 }
 
 /* Logo */
@@ -126,13 +132,63 @@ body {
   color: #c4b5fd;
 }
 
-/* Badge y logout */
+/* Selector/Toggle de perfil solo para comercio y badge estático para cliente/repartidor */
+.app-rol-switcher {
+  display: flex;
+  flex-direction: column;
+  gap: .35rem;
+}
+
+.app-rol-label {
+  font-size: .68rem;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  font-weight: 600;
+  padding-left: .2rem;
+}
+
+.app-rol-toggle {
+  display: flex;
+  background: #181b26;
+  padding: 3px;
+  border-radius: 10px;
+  border: 1px solid #2a2d3a;
+  gap: 3px;
+}
+
+.app-rol-toggle-btn {
+  flex: 1;
+  padding: .4rem .3rem;
+  font-family: 'Inter', sans-serif;
+  font-size: .73rem;
+  font-weight: 600;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: #64748b;
+  cursor: pointer;
+  transition: all .2s ease;
+  white-space: nowrap;
+}
+
+.app-rol-toggle-btn:hover {
+  color: #e2e8f0;
+}
+
+.app-rol-toggle-btn--active {
+  background: rgba(16,185,129,.18);
+  color: #6ee7b7;
+  border: 1px solid rgba(16,185,129,.35);
+  box-shadow: 0 1px 4px rgba(0,0,0,.3);
+}
+
 .app-rol-badge {
   display: block;
   text-align: center;
-  padding: .3rem .65rem;
+  padding: .45rem .8rem;
   border-radius: 999px;
-  font-size: .72rem;
+  font-size: .75rem;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: .06em;
@@ -145,15 +201,16 @@ body {
   width: 100%;
   background: transparent;
   border: 1.5px solid #374151;
-  color: #64748b;
+  color: #94a3b8;
   border-radius: 8px;
-  padding: .45rem .8rem;
+  padding: .5rem .8rem;
   font-family: 'Inter', sans-serif;
   font-size: .83rem;
+  font-weight: 500;
   cursor: pointer;
   transition: all .2s ease;
 }
-.app-logout:hover { border-color: #f87171; color: #f87171; }
+.app-logout:hover { border-color: #f87171; color: #f87171; background: rgba(248,113,113,.08); }
 
 /* ── Contenido principal ── */
 .app-main {

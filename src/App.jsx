@@ -5,6 +5,7 @@ import { supabase } from './lib/supabase';
 import ClienteForm      from './components/cliente/ClienteForm';
 import ReportePago      from './components/cliente/ReportePago';
 import HistorialCliente from './components/cliente/HistorialCliente';
+import TiendasCliente  from './components/cliente/TiendasCliente';
 import ComercioPanel    from './components/comercio/ComercioPanel';
 import RepartidorPanel  from './components/repartidor/RepartidorPanel';
 import Login            from './components/auth/Login';
@@ -18,6 +19,7 @@ const ROL_TABS = {
   cliente: [
     { id: 'dashboard', label: '📊 Dashboard' },
     { id: 'tracking',  label: '⚡ Rastreo & Chat' },
+    { id: 'tiendas',   label: '🏪 Tiendas' },
     { id: 'perfil',    label: '👤 Mi Perfil' },
     { id: 'pago',      label: '💳 Reportar Pago' },
     { id: 'historial', label: '📦 Mis Pedidos' },
@@ -28,14 +30,16 @@ const ROL_TABS = {
   ],
   repartidor:  [
     { id: 'dashboard', label: '📊 Dashboard' },
+    { id: 'pedidos',   label: '📦 Recibir Pedidos' },
     { id: 'panel',     label: '🛵 Panel Repartidor' },
   ],
 };
 
 export default function App() {
-  const [session, setSession]   = useState(null);
-  const [perfil, setPerfil]     = useState(null);
-  const [tab, setTab]           = useState('perfil');
+  const [session, setSession]         = useState(null);
+  const [perfil, setPerfil]           = useState(null);
+  const [activeRolView, setActiveRolView] = useState(null);
+  const [tab, setTab]                 = useState('dashboard');
   const [loadingAuth, setLoadingAuth] = useState(true);
 
   // ── Auth listener ───────────────────────────────────────────────
@@ -46,7 +50,10 @@ export default function App() {
     });
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_e, s) => {
       setSession(s);
-      if (!s) setPerfil(null);
+      if (!s) {
+        setPerfil(null);
+        setActiveRolView(null);
+      }
     });
     return () => subscription.unsubscribe();
   }, []);
@@ -61,9 +68,17 @@ export default function App() {
       .single()
       .then(({ data }) => {
         setPerfil(data);
-        setTab(ROL_TABS[data?.rol]?.[0]?.id ?? 'dashboard');
+        const userRol = data?.rol ?? 'cliente';
+        setActiveRolView(userRol);
+        setTab(ROL_TABS[userRol]?.[0]?.id ?? 'dashboard');
       });
   }, [session]);
+
+  const handleSwitchMode = (newMode) => {
+    if (perfil?.rol !== 'comercio') return; // Solo comercios pueden alternar modo
+    setActiveRolView(newMode);
+    setTab(ROL_TABS[newMode]?.[0]?.id ?? 'dashboard');
+  };
 
   // ── Loaders ─────────────────────────────────────────────────────
   if (loadingAuth) return (
@@ -72,8 +87,16 @@ export default function App() {
 
   if (!session) return <Login />;
 
-  const rol  = perfil?.rol ?? 'cliente';
+  const registeredRol = perfil?.rol ?? 'cliente';
+  // Si el usuario es comercio, permite usar activeRolView (comercio o cliente); si no, forza registeredRol.
+  const rol  = registeredRol === 'comercio' ? (activeRolView || 'comercio') : registeredRol;
   const tabs = ROL_TABS[rol] ?? ROL_TABS.cliente;
+
+  const ROL_LABELS = {
+    cliente:    '👤 CLIENTE',
+    comercio:   '🏪 COMERCIO',
+    repartidor: '🛵 REPARTIDOR',
+  };
 
   // ── JSX ──────────────────────────────────────────────────────────
   return (
@@ -99,7 +122,31 @@ export default function App() {
         </div>
 
         <div className="app-sidebar-bottom">
-          <span className={`app-rol-badge app-rol-badge--${rol}`}>{rol}</span>
+          {registeredRol === 'comercio' ? (
+            <div className="app-rol-switcher">
+              <span className="app-rol-label">Perfil / Modo</span>
+              <div className="app-rol-toggle">
+                <button
+                  type="button"
+                  className={`app-rol-toggle-btn ${rol === 'comercio' ? 'app-rol-toggle-btn--active' : ''}`}
+                  onClick={() => handleSwitchMode('comercio')}
+                >
+                  🏪 Comercio
+                </button>
+                <button
+                  type="button"
+                  className={`app-rol-toggle-btn ${rol === 'cliente' ? 'app-rol-toggle-btn--active' : ''}`}
+                  onClick={() => handleSwitchMode('cliente')}
+                >
+                  👤 Cliente
+                </button>
+              </div>
+            </div>
+          ) : (
+            <span className={`app-rol-badge app-rol-badge--${rol}`}>
+              {ROL_LABELS[rol] ?? rol.toUpperCase()}
+            </span>
+          )}
           <button id="btn-logout" className="app-logout"
             onClick={() => supabase.auth.signOut()}>
             Salir
@@ -114,6 +161,7 @@ export default function App() {
 
         {/* ── CLIENTE ── */}
         {rol === 'cliente' && tab === 'tracking'  && <RastreoPedidoNeumorphic session={session} />}
+        {rol === 'cliente' && tab === 'tiendas'   && <TiendasCliente session={session} />}
         {rol === 'cliente' && tab === 'perfil'    && <ClienteForm      session={session} />}
         {rol === 'cliente' && tab === 'pago'      && <ReportePago      session={session} pedidoId={null} />}
         {rol === 'cliente' && tab === 'historial' && <HistorialCliente session={session} />}
@@ -122,7 +170,8 @@ export default function App() {
         {rol === 'comercio'   && tab === 'panel' && <ComercioPanel   session={session} />}
 
         {/* ── REPARTIDOR ── */}
-        {rol === 'repartidor' && tab === 'panel' && <RepartidorPanel session={session} />}
+        {rol === 'repartidor' && tab === 'pedidos' && <RepartidorPanel session={session} initialTab="pedidos" />}
+        {rol === 'repartidor' && tab === 'panel'   && <RepartidorPanel session={session} initialTab="perfil" />}
       </main>
     </div>
   );

@@ -45,11 +45,13 @@ export default function RastreoPedidoNeumorphic({ session }) {
           .from('pedidos_entregas')
           .select(`
             id, estado, total_usd, direccion_entrega, created_at,
+            confirmacion_cliente, valoracion,
             comercio:comercios_datos(id, nombre_comercial, logo_url),
             repartidor:repartidores_datos(
               id, vehiculo, placa,
               profile:profiles(nombre_completo, telefono)
-            )
+            ),
+            reportes_pago ( metodo, estado, referencia )
           `)
           .eq('cliente_id', session.user.id)
           .order('created_at', { ascending: false });
@@ -242,6 +244,60 @@ export default function RastreoPedidoNeumorphic({ session }) {
     });
   };
 
+  const [confirmingReceived, setConfirmingReceived] = useState(false);
+
+  // Confirmar que el pedido fue recibido por el cliente
+  const handleConfirmReceived = async () => {
+    if (!activeOrder) return;
+
+    // Verificar que el pedido tenga un reporte de pago antes de confirmar
+    const tienePago = activeOrder.reportes_pago && activeOrder.reportes_pago.length > 0;
+    if (!tienePago) {
+      alert('⚠️ Debes reportar el pago del pedido antes de confirmar su recepción.');
+      return;
+    }
+
+    const ok = window.confirm('¿Confirmas que ya has recibido tu pedido correctamente?');
+    if (!ok) return;
+
+    setConfirmingReceived(true);
+    try {
+      // 1. Emitir al socket si está conectado
+      if (socketRef.current && isConnected) {
+        socketRef.current.emit('order:status_update', {
+          orderId: selectedOrderId,
+          nuevoEstado: 'entregado',
+          nota: 'Confirmado como recibido por el cliente'
+        });
+      }
+
+      // 2. Persistir en Supabase si es un pedido real
+      if (!String(activeOrder.id).startsWith('ord_demo_')) {
+        const { error } = await supabase
+          .from('pedidos_entregas')
+          .update({
+            estado: 'entregado',
+            confirmacion_cliente: true,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', activeOrder.id)
+          .eq('cliente_id', session.user.id);
+        if (error) throw error;
+      }
+
+      // 3. Actualizar estado local
+      setActiveOrder((prev) => ({ ...prev, estado: 'entregado', confirmacion_cliente: true }));
+      setOrders((prev) =>
+        prev.map((o) => (o.id === activeOrder.id ? { ...o, estado: 'entregado', confirmacion_cliente: true } : o))
+      );
+    } catch (err) {
+      console.error('Error al confirmar pedido recibido:', err);
+      alert(`No se pudo confirmar la entrega: ${err.message}`);
+    } finally {
+      setConfirmingReceived(false);
+    }
+  };
+
   // Simular avance de estado local (para demostración en vivo)
   const handleSimulateNextStep = () => {
     if (!activeOrder) return;
@@ -352,18 +408,53 @@ export default function RastreoPedidoNeumorphic({ session }) {
               Estado de la Entrega
             </span>
             <h2 className="text-xl font-bold text-white capitalize mt-0.5">
-              {TIMELINE_STEPS.find((s) => s.key === activeOrder?.estado)?.label || activeOrder?.estado}
+              {activeOrder?.estado === 'entregado'
+                ? '¡El repartidor notificó tu entrega!'
+                : TIMELINE_STEPS.find((s) => s.key === activeOrder?.estado)?.label || activeOrder?.estado}
             </h2>
+            {activeOrder?.estado === 'entregado' && (
+              <p className="text-amber-400 text-xs mt-1 font-medium">
+                ⚠️ Por favor confirma que recibiste tu pedido para completar la entrega
+              </p>
+            )}
           </div>
 
-          {/* Botón de Demostración para Simular Cambio de Estado en Vivo */}
-          <button
-            onClick={handleSimulateNextStep}
-            className="neu-button-gold px-5 py-2.5 rounded-2xl text-xs flex items-center gap-2 self-start sm:self-auto cursor-pointer"
-            title="Simula la recepción de evento de WebSocket de cambio de estado"
-          >
-            <span>🔄 Probar Siguiente Estado</span>
-          </button>
+          <div className="flex flex-wrap items-center gap-3">
+            {/* Botón de confirmación: aparece cuando el repartidor está en camino O ya marcó entregado */}
+            {(activeOrder?.estado === 'en_camino' || activeOrder?.estado === 'entregado') && (
+              (() => {
+                const tienePago = activeOrder?.reportes_pago && activeOrder.reportes_pago.length > 0;
+                return tienePago ? (
+                  <button
+                    onClick={handleConfirmReceived}
+                    disabled={confirmingReceived}
+                    className="neu-button-emerald px-5 py-2.5 rounded-2xl text-xs font-bold flex items-center gap-2 cursor-pointer shadow-lg hover:scale-105 transition-all text-white"
+                    title="Confirmar que recibiste tu pedido"
+                  >
+                    <span>{confirmingReceived ? 'Confirmando...' : (
+                      activeOrder?.estado === 'entregado' ? '✅ Confirmar recepción del pedido' : '✅ Ya recibí mi pedido'
+                    )}</span>
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => alert('⚠️ Debes reportar el pago del pedido antes de confirmar su recepción. Ve a la sección de Reporte de Pago.')}
+                    className="px-5 py-2.5 rounded-2xl text-xs font-bold flex items-center gap-2 cursor-pointer shadow-lg hover:scale-105 transition-all text-white border border-red-500/50 bg-red-900/30"
+                    title="Primero debes pagar el pedido"
+                  >
+                    <span>💳 Pagar antes de confirmar</span>
+                  </button>
+                );
+              })()
+            )}
+            {/* Botón de Demostración para Simular Cambio de Estado en Vivo */}
+            <button
+              onClick={handleSimulateNextStep}
+              className="neu-button-gold px-5 py-2.5 rounded-2xl text-xs flex items-center gap-2 self-start sm:self-auto cursor-pointer"
+              title="Simula la recepción de evento de WebSocket de cambio de estado"
+            >
+              <span>🔄 Probar Siguiente Estado</span>
+            </button>
+          </div>
         </div>
 
         {/* Barra de Progreso Neumórfica */}

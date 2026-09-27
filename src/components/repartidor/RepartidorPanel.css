@@ -608,3 +608,9 @@
   padding: .4rem .85rem;
   border-radius: 8px;
 }
+
+.rp-status-completed--waiting {
+  color: #f59e0b;
+  background: rgba(245, 158, 11, 0.1);
+  border-color: rgba(245, 158, 11, 0.35);
+}

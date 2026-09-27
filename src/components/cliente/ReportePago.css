@@ -114,6 +114,36 @@
 .rp-error { font-size: .8rem; color: var(--rp-error); }
 .rp-error--global { margin-top: -.5rem; }
 
+.rp-badge-count {
+  margin-left: 0.5rem;
+  background: rgba(16, 185, 129, 0.15);
+  color: #34d399;
+  font-size: 0.72rem;
+  padding: 0.15rem 0.45rem;
+  border-radius: 6px;
+  font-weight: 500;
+  text-transform: none;
+}
+
+.rp-loading-pedidos {
+  font-size: 0.85rem;
+  color: var(--rp-muted);
+  padding: 0.75rem 1rem;
+  background: #0f1117;
+  border: 1.5px dashed var(--rp-border);
+  border-radius: var(--rp-radius);
+}
+
+.rp-no-pedidos-banner {
+  padding: 0.85rem 1rem;
+  background: rgba(234, 179, 8, 0.1);
+  border: 1px solid rgba(234, 179, 8, 0.25);
+  border-radius: var(--rp-radius);
+  font-size: 0.85rem;
+  color: #facc15;
+  line-height: 1.45;
+}
+
 /* Métodos */
 .rp-methods {
   display: flex;

@@ -329,10 +329,10 @@ CREATE POLICY "pedidos_insert_cliente" ON public.pedidos_entregas
     public.get_my_role() = 'cliente'
   );
 
--- Actualización por Cliente: solo valoración al entregar
+-- Actualización por Cliente: confirmación de recibido y valoración
 DROP POLICY IF EXISTS "pedidos_update_cliente" ON public.pedidos_entregas;
 CREATE POLICY "pedidos_update_cliente" ON public.pedidos_entregas
-  FOR UPDATE USING (cliente_id = auth.uid() AND estado = 'entregado')
+  FOR UPDATE USING (cliente_id = auth.uid())
   WITH CHECK (cliente_id = auth.uid());
 
 -- Actualización por Comercio: confirmación, preparación o cancelación

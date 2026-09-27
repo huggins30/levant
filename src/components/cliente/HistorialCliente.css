@@ -113,7 +113,7 @@
 }
 .hc-card-header:hover { background: rgba(255,255,255,.025); }
 
-.hc-card-left  { display: flex; align-items: center; gap: .75rem; }
+.hc-card-left  { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; }
 .hc-card-right { display: flex; align-items: center; gap: .75rem; }
 
 .hc-badge {
@@ -125,6 +125,28 @@
   color: var(--badge-color);
   border: 1px solid color-mix(in srgb, var(--badge-color) 40%, transparent);
   white-space: nowrap;
+}
+
+/* Badge de estado de pago */
+.hc-badge-pago {
+  padding: .28rem .7rem;
+  border-radius: 999px;
+  font-size: .72rem;
+  font-weight: 700;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: .3rem;
+}
+.hc-badge-pago--pagado {
+  background: rgba(16, 185, 129, 0.12);
+  color: #34d399;
+  border: 1px solid rgba(16, 185, 129, 0.35);
+}
+.hc-badge-pago--pendiente {
+  background: rgba(239, 68, 68, 0.1);
+  color: #f87171;
+  border: 1px solid rgba(239, 68, 68, 0.35);
 }
 
 .hc-comercio { margin: 0; font-size: .93rem; font-weight: 600; color: var(--hc-text); }
@@ -307,6 +329,156 @@
   border-radius: 50%;
   animation: hc-spin .7s linear infinite;
   vertical-align: middle;
+}
+
+.hc-btn-pagar {
+  background: linear-gradient(135deg, #10b981, #059669);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: .35rem .85rem;
+  font-family: 'Inter', sans-serif;
+  font-size: .8rem;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 2px 10px rgba(16,185,129,.3);
+  transition: opacity .2s ease, transform .2s ease;
+}
+.hc-btn-pagar:hover {
+  opacity: .92;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 14px rgba(16,185,129,.45);
+}
+
+/* Botón rápido en cabecera */
+.hc-btn-recibido-quick {
+  background: linear-gradient(135deg, #10b981, #059669);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: .35rem .75rem;
+  font-family: 'Inter', sans-serif;
+  font-size: .78rem;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 2px 10px rgba(16,185,129,.35);
+  transition: opacity .2s ease, transform .2s ease, box-shadow .2s ease;
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: .35rem;
+}
+.hc-btn-recibido-quick:hover:not(:disabled) {
+  opacity: .95;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 14px rgba(16,185,129,.5);
+}
+.hc-btn-recibido-quick:disabled {
+  opacity: .6;
+  cursor: not-allowed;
+}
+
+/* Tarjeta expandida de confirmación */
+.hc-confirmar-card {
+  margin-top: 1.25rem;
+  padding: 1.25rem;
+  background: linear-gradient(135deg, rgba(16,185,129,.08), rgba(6,78,59,.15));
+  border: 1.5px solid rgba(16,185,129,.35);
+  border-radius: var(--hc-radius);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.25rem;
+  flex-wrap: wrap;
+}
+
+.hc-confirmar-card--alerta {
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.1), rgba(217, 119, 6, 0.15));
+  border-color: rgba(245, 158, 11, 0.45);
+}
+.hc-confirmar-card--alerta .hc-confirmar-title {
+  color: #fbbf24;
+}
+.hc-confirmar-card--alerta .hc-confirmar-icon {
+  background: rgba(245, 158, 11, 0.18);
+}
+
+/* Pago requerido — rojo/naranja fuerte */
+.hc-confirmar-card--pago-requerido {
+  background: linear-gradient(135deg, rgba(239, 68, 68, 0.1), rgba(185, 28, 28, 0.15));
+  border-color: rgba(239, 68, 68, 0.5);
+}
+.hc-confirmar-card--pago-requerido .hc-confirmar-title {
+  color: #f87171;
+}
+.hc-confirmar-card--pago-requerido .hc-confirmar-icon {
+  background: rgba(239, 68, 68, 0.18);
+}
+.hc-confirmar-card--pago-requerido .hc-confirmar-desc {
+  color: #fca5a5;
+}
+
+.hc-confirmar-text {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex: 1;
+  min-width: 240px;
+}
+
+.hc-confirmar-icon {
+  font-size: 2rem;
+  width: 48px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(16,185,129,.15);
+  border-radius: 12px;
+  flex-shrink: 0;
+}
+
+.hc-confirmar-title {
+  margin: 0;
+  font-size: .95rem;
+  font-weight: 700;
+  color: #34d399;
+}
+
+.hc-confirmar-desc {
+  margin: .25rem 0 0;
+  font-size: .8rem;
+  color: var(--hc-muted);
+  line-height: 1.4;
+}
+
+.hc-btn-confirmar-recibido {
+  background: linear-gradient(135deg, #10b981, #059669);
+  color: #fff;
+  border: none;
+  border-radius: 10px;
+  padding: .75rem 1.25rem;
+  font-family: 'Inter', sans-serif;
+  font-size: .9rem;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 4px 18px rgba(16,185,129,.35);
+  transition: opacity .2s ease, transform .2s ease, box-shadow .2s ease;
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  white-space: nowrap;
+}
+
+.hc-btn-confirmar-recibido:hover:not(:disabled) {
+  opacity: .95;
+  transform: translateY(-2px);
+  box-shadow: 0 6px 24px rgba(16,185,129,.5);
+}
+
+.hc-btn-confirmar-recibido:disabled {
+  opacity: .6;
+  cursor: not-allowed;
 }
 
 @media (max-width: 480px) {

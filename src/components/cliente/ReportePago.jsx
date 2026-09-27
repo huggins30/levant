@@ -28,17 +28,68 @@ const defaultForm = {
 };
 
 export default function ReportePago({ session, pedidoId, onReported }) {
-  const [form, setForm]       = useState(defaultForm);
-  const [errors, setErrors]   = useState({});
-  const [loading, setLoading] = useState(false);
-  const [status, setStatus]   = useState(null); // 'success' | 'error'
-  const [file, setFile]       = useState(null);
-  const [preview, setPreview] = useState(null);
+  const [form, setForm]                       = useState(defaultForm);
+  const [errors, setErrors]                   = useState({});
+  const [loading, setLoading]                 = useState(false);
+  const [status, setStatus]                   = useState(null); // 'success' | 'error'
+  const [errorMessage, setErrorMessage]       = useState('');
+  const [file, setFile]                       = useState(null);
+  const [preview, setPreview]                 = useState(null);
+
+  const [pedidos, setPedidos]                 = useState([]);
+  const [selectedPedidoId, setSelectedPedidoId] = useState(pedidoId || '');
+  const [loadingPedidos, setLoadingPedidos]   = useState(true);
 
   const isPagoMovil   = form.metodo === 'pago_movil';
   const isTransferencia = form.metodo === 'transferencia';
   const isZelle       = form.metodo === 'zelle';
   const needsBanks    = isPagoMovil || isTransferencia;
+
+  // Cargar pedidos del usuario para vincular el pago
+  useEffect(() => {
+    if (!session?.user?.id) return;
+    async function loadPedidos() {
+      setLoadingPedidos(true);
+      try {
+        const { data, error } = await supabase
+          .from('pedidos_entregas')
+          .select(`
+            id, total_usd, estado, created_at,
+            comercios_datos ( nombre_comercial )
+          `)
+          .eq('cliente_id', session.user.id)
+          .order('created_at', { ascending: false });
+
+        if (!error && data) {
+          setPedidos(data);
+          if (pedidoId) {
+            setSelectedPedidoId(pedidoId);
+            const found = data.find(p => p.id === pedidoId);
+            if (found?.total_usd) {
+              setForm(prev => ({
+                ...prev,
+                monto_usd: prev.monto_usd || String(found.total_usd)
+              }));
+            }
+          } else if (data.length > 0) {
+            const pendiente = data.find(p => p.estado === 'pendiente') || data[0];
+            setSelectedPedidoId(pendiente.id);
+            if (pendiente.total_usd) {
+              setForm(prev => ({
+                ...prev,
+                monto_usd: prev.monto_usd || String(pendiente.total_usd)
+              }));
+            }
+          }
+        }
+      } catch (err) {
+        console.error('Error cargando pedidos para reporte de pago:', err);
+      } finally {
+        setLoadingPedidos(false);
+      }
+    }
+    loadPedidos();
+  }, [session, pedidoId]);
 
   // Preview de comprobante
   useEffect(() => {
@@ -51,6 +102,11 @@ export default function ReportePago({ session, pedidoId, onReported }) {
   // ── Validación ──────────────────────────────────────────────────
   const validate = () => {
     const e = {};
+
+    if (pedidos.length > 0 && !selectedPedidoId) {
+      e.pedido_id = 'Debes seleccionar el pedido que estás pagando.';
+    }
+
     if (!form.referencia.trim())
       e.referencia = 'El número de referencia es obligatorio.';
 
@@ -98,6 +154,7 @@ export default function ReportePago({ session, pedidoId, onReported }) {
 
     setLoading(true);
     setStatus(null);
+    setErrorMessage('');
 
     try {
       let comprobante_url = null;
@@ -115,8 +172,10 @@ export default function ReportePago({ session, pedidoId, onReported }) {
         comprobante_url = urlData.publicUrl;
       }
 
+      const pId = selectedPedidoId || pedidoId || null;
+
       const payload = {
-        pedido_id:      pedidoId,
+        pedido_id:      pId,
         cliente_id:     session.user.id,
         metodo:         form.metodo,
         banco_origen:   form.banco_origen   || null,
@@ -137,7 +196,12 @@ export default function ReportePago({ session, pedidoId, onReported }) {
       setFile(null);
       onReported?.();
     } catch (err) {
-      console.error(err);
+      console.error('Error enviando reporte de pago:', err);
+      let msg = err.message || 'Error al enviar el reporte. Intenta de nuevo.';
+      if (msg.includes('null value in column "pedido_id"') || msg.includes('violates not-null constraint')) {
+        msg = 'El pago debe estar asociado a un pedido existente. Por favor realiza tu pedido en Tiendas antes de reportar el pago.';
+      }
+      setErrorMessage(msg);
       setStatus('error');
     } finally {
       setLoading(false);
@@ -157,6 +221,49 @@ export default function ReportePago({ session, pedidoId, onReported }) {
         </div>
 
         <form className="rp-form" onSubmit={handleSubmit} noValidate>
+
+          {/* ── Pedido asociado ── */}
+          <div className={`rp-field ${errors.pedido_id ? 'rp-field--error' : ''}`}>
+            <label htmlFor="rp-pedido">
+              Pedido a pagar
+              {pedidos.length > 0 && (
+                <span className="rp-badge-count">{pedidos.length} pedido{pedidos.length !== 1 ? 's' : ''}</span>
+              )}
+            </label>
+            {loadingPedidos ? (
+              <div className="rp-loading-pedidos">Cargando tus pedidos...</div>
+            ) : pedidos.length > 0 ? (
+              <select
+                id="rp-pedido"
+                value={selectedPedidoId}
+                onChange={(e) => {
+                  const pId = e.target.value;
+                  setSelectedPedidoId(pId);
+                  if (errors.pedido_id) setErrors(prev => ({ ...prev, pedido_id: '' }));
+                  const ped = pedidos.find(p => p.id === pId);
+                  if (ped?.total_usd) {
+                    setForm(prev => ({ ...prev, monto_usd: String(ped.total_usd) }));
+                  }
+                }}
+              >
+                <option value="">Selecciona el pedido…</option>
+                {pedidos.map(p => {
+                  const tienda = p.comercios_datos?.nombre_comercial || 'Comercio';
+                  const fecha = new Date(p.created_at).toLocaleDateString('es-VE', { day: '2-digit', month: 'short' });
+                  return (
+                    <option key={p.id} value={p.id}>
+                      Pedido #{p.id.slice(0, 8)} — {tienda} — ${parseFloat(p.total_usd).toFixed(2)} ({p.estado}) · {fecha}
+                    </option>
+                  );
+                })}
+              </select>
+            ) : (
+              <div className="rp-no-pedidos-banner">
+                ⚠️ No tienes pedidos registrados actualmente. Recuerda que para reportar un pago debes crear primero tu pedido en la sección <strong>Tiendas</strong>.
+              </div>
+            )}
+            {errors.pedido_id && <span className="rp-error">{errors.pedido_id}</span>}
+          </div>
 
           {/* ── Método de pago ── */}
           <div className="rp-field">
@@ -275,7 +382,9 @@ export default function ReportePago({ session, pedidoId, onReported }) {
             <div className="rp-alert rp-alert--success">✅ Pago reportado. Esperando verificación del comercio.</div>
           )}
           {status === 'error' && (
-            <div className="rp-alert rp-alert--error">❌ Error al enviar el reporte. Intenta de nuevo.</div>
+            <div className="rp-alert rp-alert--error">
+              ❌ {errorMessage || 'Error al enviar el reporte. Intenta de nuevo.'}
+            </div>
           )}
 
           {/* ── Submit ── */}

@@ -92,6 +92,10 @@ export const orderService = {
       if (!['en_camino', 'entregado'].includes(nuevoEstado)) {
         throw new Error('El repartidor sólo puede pasar el pedido a en camino o entregado');
       }
+    } else if (actor.rol === 'cliente') {
+      if (!['entregado', 'cancelado'].includes(nuevoEstado)) {
+        throw new Error('El cliente sólo puede marcar el pedido como entregado o cancelar');
+      }
     }
 
     const { data: updated, error } = await supabase

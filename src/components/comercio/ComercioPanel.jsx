@@ -298,7 +298,7 @@ export default function ComercioPanel({ session }) {
     const [{ data: resumen }, { data: listaPedidos }] = await Promise.all([
       supabase.from('comercio_ventas_resumen').select('*').eq('comercio_id', perfil.id).single(),
       supabase.from('pedidos_entregas')
-        .select('id, estado, total_usd, created_at, profiles!pedidos_entregas_cliente_id_fkey(nombre_completo), reportes_pago(metodo, estado, referencia)')
+        .select('id, estado, total_usd, created_at, confirmacion_cliente, valoracion, profiles!pedidos_entregas_cliente_id_fkey(nombre_completo), reportes_pago(metodo, estado, referencia)')
         .eq('comercio_id', perfil.id)
         .order('created_at', { ascending: false })
         .limit(50),
@@ -318,6 +318,7 @@ export default function ComercioPanel({ session }) {
       .from('pedidos_entregas')
       .select(`
         id, estado, total_usd, direccion_entrega, created_at, updated_at, repartidor_id,
+        confirmacion_cliente, valoracion,
         profiles!pedidos_entregas_cliente_id_fkey(nombre_completo, telefono),
         repartidores_datos (
           id, vehiculo, placa, disponible,
@@ -326,7 +327,8 @@ export default function ComercioPanel({ session }) {
         pedido_items (
           id, cantidad, precio_usd, subtotal_usd,
           productos ( nombre, imagen_url )
-        )
+        ),
+        reportes_pago ( metodo, estado, referencia, monto_bs, monto_usd )
       `)
       .eq('comercio_id', perfil.id)
       .order('created_at', { ascending: false })
@@ -513,6 +515,25 @@ export default function ComercioPanel({ session }) {
   );
 
   const ESTADO_BADGE = { pendiente:'#f59e0b', confirmado:'#6c63ff', en_preparacion:'#3b82f6', en_camino:'#8b5cf6', entregado:'#10b981', cancelado:'#f87171' };
+
+  const getEstadoBadge = (ped) => {
+    if (!ped) return { label: '—', color: '#64748b' };
+    const clienteConfirmo = Boolean(
+      ped.confirmacion_cliente === true ||
+      ped.valoracion
+    );
+    if (ped.estado === 'entregado') {
+      if (clienteConfirmo) {
+        return { label: 'entregado', color: '#10b981' };
+      } else {
+        return { label: 'pendiente confirmacion de entrega por cliente', color: '#f59e0b' };
+      }
+    }
+    return {
+      label: ped.estado?.replace('_', ' ') ?? '—',
+      color: ESTADO_BADGE[ped.estado] ?? '#64748b'
+    };
+  };
 
   const listaRepartidores = [...repartidoresActivos].sort((a, b) => {
     if (a.disponible === b.disponible) {
@@ -727,14 +748,22 @@ export default function ComercioPanel({ session }) {
               <div className="cp-empty"><span>📭</span><p>No hay pedidos {filtroEstado !== 'todos' ? `con estado "${filtroEstado.replace('_',' ')}"` : 'registrados'}.</p></div>
             ) : (
               <div className="cp-pedidos-grid">
-                {pedidosFiltrados.map(ped => (
-                  <div key={ped.id} className="cp-pedido-card" onClick={() => setPedidoDetalle(ped)}>
-                    <div className="cp-pedido-card-top">
-                      <div className="cp-pedido-card-id">#{ped.id.slice(0,8)}</div>
-                      <span className="cp-badge" style={{ '--badge-color': ESTADO_BADGE[ped.estado] ?? '#64748b' }}>
-                        {ped.estado?.replace('_',' ')}
-                      </span>
-                    </div>
+                {pedidosFiltrados.map(ped => {
+                  const tienePago = ped.reportes_pago && ped.reportes_pago.length > 0;
+                  const estadoInfo = getEstadoBadge(ped);
+                  return (
+                    <div key={ped.id} className="cp-pedido-card" onClick={() => setPedidoDetalle(ped)}>
+                      <div className="cp-pedido-card-top">
+                        <div className="cp-pedido-card-id">#{ped.id.slice(0,8)}</div>
+                        <div className="cp-pedido-card-badges">
+                          <span className="cp-badge" style={{ '--badge-color': estadoInfo.color }}>
+                            {estadoInfo.label}
+                          </span>
+                          <span className={`cp-badge-pago ${tienePago ? 'cp-badge-pago--pagado' : 'cp-badge-pago--pendiente'}`}>
+                            {tienePago ? '✅ Pagado' : '⏳ Pendiente por Pagar'}
+                          </span>
+                        </div>
+                      </div>
 
                     <div className="cp-pedido-card-content">
                       <div className="cp-pedido-card-body">
@@ -798,7 +827,8 @@ export default function ComercioPanel({ session }) {
                       <span className="cp-pedido-card-total">${ped.total_usd?.toFixed(2)}</span>
                     </div>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             );
           })()}
@@ -888,12 +918,42 @@ export default function ComercioPanel({ session }) {
                 )}
               </div>
 
-              {/* Estado actual + acciones */}
+              {/* Estado actual + Pago */}
               <div className="cp-pedido-estado-section">
                 <span className="cp-pedido-estado-label">Estado actual:</span>
-                <span className="cp-badge cp-badge--lg" style={{ '--badge-color': ESTADO_BADGE[pedidoDetalle.estado] ?? '#64748b' }}>
-                  {pedidoDetalle.estado?.replace('_',' ')}
-                </span>
+                <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                  {(() => {
+                    const estadoInfo = getEstadoBadge(pedidoDetalle);
+                    return (
+                      <span className="cp-badge cp-badge--lg" style={{ '--badge-color': estadoInfo.color }}>
+                        {estadoInfo.label}
+                      </span>
+                    );
+                  })()}
+                  <span className={`cp-badge-pago ${(pedidoDetalle.reportes_pago?.length > 0) ? 'cp-badge-pago--pagado' : 'cp-badge-pago--pendiente'}`}>
+                    {(pedidoDetalle.reportes_pago?.length > 0) ? '✅ Pagado' : '⏳ Pendiente por Pagar'}
+                  </span>
+                </div>
+              </div>
+
+              {/* Información de Pago */}
+              <div className="cp-modal-pago-section">
+                <span className="cp-modal-rep-label">💳 Reporte de pago:</span>
+                {pedidoDetalle.reportes_pago?.[0] ? (
+                  <div className="cp-pago-info-box">
+                    <span className="cp-badge-pago cp-badge-pago--pagado">✅ Registrado</span>
+                    <span className="cp-pago-info-text">
+                      Método: <strong>{pedidoDetalle.reportes_pago[0].metodo?.replace('_', ' ')}</strong>
+                      {pedidoDetalle.reportes_pago[0].referencia ? ` · Ref: ${pedidoDetalle.reportes_pago[0].referencia}` : ''}
+                      {pedidoDetalle.reportes_pago[0].monto_bs ? ` · Bs. ${pedidoDetalle.reportes_pago[0].monto_bs}` : ''}
+                    </span>
+                  </div>
+                ) : (
+                  <div className="cp-pago-info-box">
+                    <span className="cp-badge-pago cp-badge-pago--pendiente">⏳ Sin reporte</span>
+                    <span className="cp-pago-info-text">El cliente no ha registrado su pago todavía.</span>
+                  </div>
+                )}
               </div>
 
               {/* Botones de cambio de estado */}
@@ -1027,9 +1087,14 @@ export default function ComercioPanel({ session }) {
                               : <span className="cp-muted">Sin reporte</span>}
                           </td>
                           <td className="cp-td-c">
-                            <span className="cp-badge" style={{ '--badge-color': ESTADO_BADGE[p.estado] ?? '#64748b' }}>
-                              {p.estado?.replace('_',' ')}
-                            </span>
+                            {(() => {
+                              const eb = getEstadoBadge(p);
+                              return (
+                                <span className="cp-badge" style={{ '--badge-color': eb.color }}>
+                                  {eb.label}
+                                </span>
+                              );
+                            })()}
                           </td>
                           <td className="cp-td-r cp-price">${p.total_usd?.toFixed(2)}</td>
                         </tr>

@@ -330,7 +330,7 @@ CREATE POLICY "pedidos_cliente_insert"
 
 CREATE POLICY "pedidos_cliente_update_valoracion"
   ON public.pedidos_entregas FOR UPDATE
-  USING (cliente_id = auth.uid() AND estado = 'entregado')
+  USING (cliente_id = auth.uid())
   WITH CHECK (cliente_id = auth.uid());
 
 CREATE POLICY "pedidos_comercio_select"

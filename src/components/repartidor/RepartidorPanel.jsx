@@ -82,7 +82,8 @@ export default function RepartidorPanel({ session, initialTab = 'pedidos' }) {
       const { data, error } = await supabase
         .from('pedidos_entregas')
         .select(`
-          id, estado, total_usd, created_at, updated_at, direccion_entrega,
+          id, estado, total_usd, created_at, updated_at, direccion_entrega, valoracion,
+          confirmacion_cliente,
           comercios_datos (
             id, nombre_comercial, direccion
           ),
@@ -119,6 +120,7 @@ export default function RepartidorPanel({ session, initialTab = 'pedidos' }) {
         .from('pedidos_entregas')
         .select(`
           id, estado, total_usd, valoracion, comentario, created_at, direccion_entrega,
+          confirmacion_cliente,
           profiles!pedidos_entregas_cliente_id_fkey( nombre_completo ),
           comercios_datos( nombre_comercial )
         `)
@@ -364,7 +366,10 @@ export default function RepartidorPanel({ session, initialTab = 'pedidos' }) {
                 return (
                   <div className="rp-pedidos-list">
                     {filtrados.map(ped => {
-                      const badge = ESTADO_BADGE[ped.estado] ?? { label: ped.estado, color: '#64748b' };
+                      const clienteConfirmo = Boolean(ped.confirmacion_cliente === true || ped.valoracion);
+                      const badge = (ped.estado === 'entregado' && !clienteConfirmo)
+                        ? { label: 'pendiente confirmacion de entrega por cliente', color: '#f59e0b' }
+                        : (ESTADO_BADGE[ped.estado] ?? { label: ped.estado, color: '#64748b' });
                       const isAsignado = ped.estado === 'pendiente' || ped.estado === 'confirmado' || ped.estado === 'en_preparacion';
                       const isEnCamino = ped.estado === 'en_camino';
                       const isEntregado = ped.estado === 'entregado';
@@ -461,7 +466,7 @@ export default function RepartidorPanel({ session, initialTab = 'pedidos' }) {
                                   className="rp-btn-action rp-btn-action--entregar"
                                   disabled={updatingPedidoId === ped.id}
                                   onClick={() => {
-                                    if (confirm('¿Confirmas que entregaste este pedido al cliente?')) {
+                                    if (confirm('¿Confirmas que ya entregaste el pedido al cliente para solicitar su confirmación?')) {
                                       cambiarEstadoPedido(ped.id, 'entregado');
                                     }
                                   }}
@@ -469,15 +474,19 @@ export default function RepartidorPanel({ session, initialTab = 'pedidos' }) {
                                   {updatingPedidoId === ped.id ? (
                                     <span className="rp-spinner-sm" />
                                   ) : (
-                                    <>✅ Marcar como Entregado</>
+                                    <>📦 Notificar Entrega Realizada</>
                                   )}
                                 </button>
                               )}
 
                               {/* Entregado info */}
                               {isEntregado && (
-                                <span className="rp-status-completed">
-                                  🎉 Pedido entregado con éxito
+                                <span className={`rp-status-completed ${(ped.confirmacion_cliente || ped.valoracion) ? '' : 'rp-status-completed--waiting'}`}>
+                                  {(ped.confirmacion_cliente || ped.valoracion) ? (
+                                    <>🌟 Cliente confirmó {ped.valoracion ? `y valoró con ${ped.valoracion}★` : 'la entrega'}</>
+                                  ) : (
+                                    <>⏳ Pendiente confirmación de entrega por cliente</>
+                                  )}
                                 </span>
                               )}
                             </div>

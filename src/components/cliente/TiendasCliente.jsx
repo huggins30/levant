@@ -14,7 +14,7 @@ const CAT_ICONS = {
   otro:         '🏪',
 };
 
-export default function TiendasCliente({ session }) {
+export default function TiendasCliente({ session, onGoToPago }) {
   const [comercios, setComercios]       = useState([]);
   const [loading, setLoading]           = useState(true);
   const [search, setSearch]             = useState('');
@@ -30,6 +30,7 @@ export default function TiendasCliente({ session }) {
   const [referencia, setReferencia]     = useState('');
   const [ordering, setOrdering]         = useState(false);
   const [orderResult, setOrderResult]   = useState(null); // 'ok' | error string
+  const [createdPedidoId, setCreatedPedidoId] = useState(null);
 
   // ── Cargar comercios ──
   const fetchComercios = useCallback(async () => {
@@ -172,6 +173,7 @@ export default function TiendasCliente({ session }) {
 
       if (itemsErr) throw itemsErr;
 
+      setCreatedPedidoId(pedido.id);
       setOrderResult('ok');
       setCart({});
     } catch (err) {
@@ -443,7 +445,24 @@ export default function TiendasCliente({ session }) {
                       </>
                     )}
                     {orderResult === 'ok' && (
-                      <button className="tc-btn-buy" onClick={closeStore}>Cerrar</button>
+                      <div style={{ display: 'flex', gap: '0.75rem', width: '100%' }}>
+                        <button className="tc-btn-secondary" style={{ flex: 1 }} onClick={closeStore}>
+                          Seguir comprando
+                        </button>
+                        {onGoToPago && createdPedidoId && (
+                          <button
+                            className="tc-btn-buy"
+                            style={{ flex: 1 }}
+                            onClick={() => {
+                              const pId = createdPedidoId;
+                              closeStore();
+                              onGoToPago(pId);
+                            }}
+                          >
+                            💳 Reportar Pago
+                          </button>
+                        )}
+                      </div>
                     )}
                   </div>
                 </div>

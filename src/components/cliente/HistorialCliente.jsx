@@ -28,13 +28,22 @@ const StarRating = ({ value, onChange, readonly = false }) => (
   </div>
 );
 
-export default function HistorialCliente({ session }) {
+export default function HistorialCliente({ session, onGoToPago }) {
   const [pedidos, setPedidos]     = useState([]);
   const [loading, setLoading]     = useState(true);
   const [error, setError]         = useState(null);
   const [expanded, setExpanded]   = useState(null);
-  const [valorando, setValorando] = useState({});   // { pedidoId: { stars, comment, loading } }
-  const [filter, setFilter]       = useState('todos');
+  const [valorando, setValorando]     = useState({});   // { pedidoId: { stars, comment, loading } }
+  const [confirmando, setConfirmando] = useState({});   // { pedidoId: boolean }
+  const [filter, setFilter]           = useState('todos');
+  const [confirmedLocal, setConfirmedLocal] = useState(() => {
+    try {
+      const saved = localStorage.getItem('levant_pedidos_confirmados');
+      return saved ? JSON.parse(saved) : {};
+    } catch {
+      return {};
+    }
+  });
 
   // ── Cargar pedidos del cliente ─────────────────────────────────
   const fetchPedidos = useCallback(async () => {
@@ -46,6 +55,7 @@ export default function HistorialCliente({ session }) {
       .from('pedidos_entregas')
       .select(`
         id, estado, total_usd, valoracion, comentario, created_at, direccion_entrega,
+        confirmacion_cliente,
         comercios_datos ( nombre_comercial ),
         repartidores_datos ( profiles ( nombre_completo ) ),
         pedido_items (
@@ -63,6 +73,69 @@ export default function HistorialCliente({ session }) {
   }, [session]);
 
   useEffect(() => { fetchPedidos(); }, [fetchPedidos]);
+
+  // ── Confirmar recepción del pedido ──────────────────────────────
+  const confirmarRecibido = async (pedidoId) => {
+    // Verificar que el pedido tenga un reporte de pago antes de confirmar
+    const pedido = pedidos.find(p => p.id === pedidoId);
+    const tienePago = pedido?.reportes_pago && pedido.reportes_pago.length > 0;
+    if (!tienePago) {
+      alert('⚠️ Debes reportar el pago del pedido antes de confirmar su recepción.');
+      onGoToPago?.(pedidoId);
+      return;
+    }
+
+    const ok = window.confirm('¿Confirmas que ya has recibido tu pedido correctamente?');
+    if (!ok) return;
+
+    setConfirmando(prev => ({ ...prev, [pedidoId]: true }));
+    try {
+      // 1. Intentar actualizar estado y columna confirmacion_cliente si existe
+      const { error: errCol } = await supabase
+        .from('pedidos_entregas')
+        .update({
+          estado: 'entregado',
+          confirmacion_cliente: true,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', pedidoId)
+        .eq('cliente_id', session.user.id);
+
+      if (errCol && errCol.message?.includes('confirmacion_cliente')) {
+        // Fallback si la columna confirmacion_cliente aún no está en Supabase
+        await supabase
+          .from('pedidos_entregas')
+          .update({
+            estado: 'entregado',
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', pedidoId)
+          .eq('cliente_id', session.user.id);
+      }
+
+      // 2. Persistir localmente en localStorage
+      const updatedLocal = { ...confirmedLocal, [pedidoId]: true };
+      setConfirmedLocal(updatedLocal);
+      try {
+        localStorage.setItem('levant_pedidos_confirmados', JSON.stringify(updatedLocal));
+      } catch (e) {
+        console.error(e);
+      }
+
+      // 3. Actualizar estado local del pedido
+      setPedidos(prev => prev.map(p =>
+        p.id === pedidoId
+          ? { ...p, estado: 'entregado', confirmacion_cliente: true, updated_at: new Date().toISOString() }
+          : p
+      ));
+      setExpanded(pedidoId);
+    } catch (error) {
+      console.error('Excepción al confirmar pedido recibido:', error);
+      alert('Ocurrió un error inesperado al confirmar la entrega.');
+    } finally {
+      setConfirmando(prev => ({ ...prev, [pedidoId]: false }));
+    }
+  };
 
   // ── Enviar valoración ──────────────────────────────────────────
   const submitValoracion = async (pedidoId) => {
@@ -147,7 +220,17 @@ export default function HistorialCliente({ session }) {
       {/* Lista de pedidos */}
       <div className="hc-list">
         {filtrados.map(pedido => {
-          const badge   = ESTADO_BADGE[pedido.estado] ?? { label: pedido.estado, color: '#64748b' };
+          const clienteYaConfirmo = Boolean(
+            pedido.confirmacion_cliente === true ||
+            pedido.valoracion ||
+            confirmedLocal[pedido.id]
+          );
+
+          const badge = (pedido.estado === 'entregado' && !clienteYaConfirmo)
+            ? { label: 'Por confirmar', color: '#f59e0b' }
+            : (ESTADO_BADGE[pedido.estado] ?? { label: pedido.estado, color: '#64748b' });
+
+          const tienePago = pedido?.reportes_pago && pedido.reportes_pago.length > 0;
           const isOpen  = expanded === pedido.id;
           const yaValorado = Boolean(pedido.valoracion);
           const v = valorando[pedido.id] ?? {};
@@ -165,12 +248,49 @@ export default function HistorialCliente({ session }) {
                   <span className="hc-badge" style={{ '--badge-color': badge.color }}>
                     {badge.label}
                   </span>
+                  <span className={`hc-badge-pago ${tienePago ? 'hc-badge-pago--pagado' : 'hc-badge-pago--pendiente'}`}>
+                    {tienePago ? '✅ Pagado' : '⏳ Pendiente por Pagar'}
+                  </span>
                   <div>
                     <p className="hc-comercio">{pedido.comercios_datos?.nombre_comercial ?? '—'}</p>
                     <p className="hc-date">{formatDate(pedido.created_at)}</p>
                   </div>
                 </div>
                 <div className="hc-card-right">
+                  {!clienteYaConfirmo && (pedido.estado === 'en_camino' || pedido.estado === 'entregado') && (
+                    (() => {
+                      return tienePago ? (
+                        <button
+                          type="button"
+                          className="hc-btn-recibido-quick"
+                          disabled={confirmando[pedido.id]}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            confirmarRecibido(pedido.id);
+                          }}
+                          title="Confirmar que recibiste este pedido"
+                        >
+                          {confirmando[pedido.id] ? (
+                            <span className="hc-spinner-sm" />
+                          ) : (
+                            '✅ Confirmar recibido'
+                          )}
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          className="hc-btn-pagar"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onGoToPago?.(pedido.id);
+                          }}
+                          title="Debes pagar antes de confirmar la recepción"
+                        >
+                          💳 Pagar primero
+                        </button>
+                      );
+                    })()
+                  )}
                   <span className="hc-total">${pedido.total_usd?.toFixed(2)}</span>
                   <span className={`hc-chevron ${isOpen ? 'hc-chevron--up' : ''}`}>›</span>
                 </div>
@@ -224,7 +344,7 @@ export default function HistorialCliente({ session }) {
                         <span>🛵 {pedido.repartidores_datos.profiles.nombre_completo}</span>
                       </div>
                     )}
-                    {pedido.reportes_pago?.[0] && (
+                    {pedido.reportes_pago?.[0] ? (
                       <div className="hc-meta-item">
                         <span className="hc-meta-label">Pago</span>
                         <span>
@@ -235,11 +355,81 @@ export default function HistorialCliente({ session }) {
                           </span>
                         </span>
                       </div>
+                    ) : (
+                      <div className="hc-meta-item">
+                        <span className="hc-meta-label">Pago</span>
+                        <button
+                          type="button"
+                          className="hc-btn-pagar"
+                          onClick={() => onGoToPago?.(pedido.id)}
+                        >
+                          💳 Reportar Pago
+                        </button>
+                      </div>
                     )}
                   </div>
 
+                  {/* ── Confirmación de recibido ── */}
+                  {!clienteYaConfirmo && ['entregado', 'en_camino', 'en_preparacion', 'confirmado'].includes(pedido.estado) && (
+                    (() => {
+                      const tienePago = pedido?.reportes_pago && pedido.reportes_pago.length > 0;
+                      return tienePago ? (
+                        <div className={`hc-confirmar-card ${pedido.estado === 'entregado' ? 'hc-confirmar-card--alerta' : ''}`}>
+                          <div className="hc-confirmar-text">
+                            <span className="hc-confirmar-icon">🛵</span>
+                            <div>
+                              <p className="hc-confirmar-title">
+                                {pedido.estado === 'entregado'
+                                  ? 'El repartidor indicó que ya entregó tu pedido'
+                                  : '¿Ya recibiste tu pedido?'}
+                              </p>
+                              <p className="hc-confirmar-desc">
+                                {pedido.estado === 'entregado'
+                                  ? 'Por favor verifica la entrega para finalizar tu pedido y habilitar la calificación del servicio.'
+                                  : 'Confirma la entrega para marcarlo como entregado y calificar la atención y el servicio.'}
+                              </p>
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            id={`hc-confirmar-${pedido.id}`}
+                            className="hc-btn-confirmar-recibido"
+                            disabled={confirmando[pedido.id]}
+                            onClick={() => confirmarRecibido(pedido.id)}
+                          >
+                            {confirmando[pedido.id] ? (
+                              <><span className="hc-spinner-sm" /> Confirmando...</>
+                            ) : (
+                              '✅ Confirmar que ya recibí el pedido'
+                            )}
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="hc-confirmar-card hc-confirmar-card--pago-requerido">
+                          <div className="hc-confirmar-text">
+                            <span className="hc-confirmar-icon">💳</span>
+                            <div>
+                              <p className="hc-confirmar-title">Pago pendiente</p>
+                              <p className="hc-confirmar-desc">
+                                Debes reportar el pago de este pedido antes de poder confirmar su recepción.
+                              </p>
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            id={`hc-pagar-${pedido.id}`}
+                            className="hc-btn-pagar"
+                            onClick={() => onGoToPago?.(pedido.id)}
+                          >
+                            💳 Reportar Pago
+                          </button>
+                        </div>
+                      );
+                    })()
+                  )}
+
                   {/* ── Valoración ── */}
-                  {pedido.estado === 'entregado' && (
+                  {pedido.estado === 'entregado' && clienteYaConfirmo && (
                     <div className="hc-rating-section">
                       <p className="hc-rating-label">
                         {yaValorado ? '⭐ Tu valoración' : '⭐ Valorar pedido'}

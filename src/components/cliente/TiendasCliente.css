@@ -819,12 +819,27 @@
 }
 
 /* Responsive */
+@media (max-width: 860px) {
+  .tc-grid { grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); }
+}
 @media (max-width: 640px) {
   .tc-wrapper { padding: 1rem; }
   .tc-grid { grid-template-columns: 1fr; }
   .tc-toolbar { flex-direction: column; }
-  .tc-search { min-width: unset; }
+  .tc-search { min-width: unset; width: 100%; }
+  .tc-filter-select { width: 100%; }
+  .tc-header-title { font-size: 1.25rem; }
   .tc-cart-bar { flex-direction: column; text-align: center; }
+  .tc-cart-bar-right { width: 100%; justify-content: center; }
   .tc-checkout-actions { flex-direction: column; }
   .tc-btn-buy, .tc-btn-secondary { width: 100%; justify-content: center; }
+  .tc-modal { max-width: 100%; border-radius: 16px 16px 0 0; max-height: 92vh; }
+  .tc-overlay { align-items: flex-end; padding: 0; }
+  .tc-modal-header { padding: 1rem 1.25rem .5rem; }
+  .tc-modal-body { padding: .85rem 1.25rem 1.25rem; }
+}
+@media (max-width: 380px) {
+  .tc-wrapper { padding: .75rem; }
+  .tc-card-body { padding: 1rem; }
+  .tc-cart-bar { padding: .75rem; }
 }

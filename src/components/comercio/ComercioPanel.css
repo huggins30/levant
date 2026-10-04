@@ -962,6 +962,10 @@
   color: var(--cp-green);
 }
 
+@media (max-width: 860px) {
+  .cp-kpis { grid-template-columns: repeat(2, 1fr); }
+  .cp-pedidos-grid { grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); }
+}
 @media (max-width: 640px) {
   .cp-section { padding: 1.25rem 1rem; }
   .cp-row2  { grid-template-columns: 1fr; }
@@ -970,7 +974,15 @@
   .cp-pedido-info-grid { grid-template-columns: 1fr; }
   .cp-pedido-acciones-btns { flex-direction: column; }
   .cp-estado-btn { width: 100%; justify-content: center; }
+  .cp-tabs { padding: 1rem 1rem .5rem; }
+  .cp-section-header { flex-direction: column; align-items: flex-start; gap: .65rem; }
+  .cp-modal { border-radius: 16px 16px 0 0; max-height: 90vh; }
+  .cp-overlay { align-items: flex-end; padding: 0; }
+  .cp-modal-form { padding: 1.25rem; }
+  .cp-prod-table-wrap { border-radius: 10px; }
+  .cp-btn-primary.cp-btn-sm { margin-left: 0; }
 }
 @media (max-width: 380px) {
   .cp-kpis { grid-template-columns: 1fr; }
+  .cp-section { padding: 1rem .85rem; }
 }

@@ -300,6 +300,7 @@ export default function HistorialCliente({ session, onGoToPago }) {
               {isOpen && (
                 <div className="hc-card-body">
                   {/* Items */}
+                  <div className="hc-table-wrap">
                   <table className="hc-table" aria-label="Productos del pedido">
                     <thead>
                       <tr>
@@ -331,6 +332,7 @@ export default function HistorialCliente({ session, onGoToPago }) {
                       </tr>
                     </tfoot>
                   </table>
+                  </div>{/* end hc-table-wrap */}
 
                   {/* Meta info */}
                   <div className="hc-meta">

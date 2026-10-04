@@ -197,3 +197,13 @@
 .neu-chat-scroll::-webkit-scrollbar-thumb:hover {
   background: #10b981;
 }
+
+/* ── Responsive ── */
+@media (max-width: 768px) {
+  .neu-panel-container { font-size: 0.9rem; }
+}
+@media (max-width: 640px) {
+  .neu-card { border-radius: 12px; }
+  .neu-bubble-client,
+  .neu-bubble-other { font-size: .87rem; }
+}

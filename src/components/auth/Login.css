@@ -198,3 +198,18 @@
 @keyframes auth-spin {
   to { transform: rotate(360deg); }
 }
+
+@media (max-width: 480px) {
+  .auth-wrapper { padding: 1rem; }
+  .auth-card {
+    padding: 2rem 1.5rem;
+    border-radius: 16px;
+  }
+  .auth-logo { font-size: 1.65rem; }
+  .auth-header h2 { font-size: 1.3rem; }
+}
+@media (max-width: 360px) {
+  .auth-card { padding: 1.5rem 1.25rem; }
+  .auth-roles { flex-direction: column; }
+  .auth-role-btn { width: 100%; }
+}

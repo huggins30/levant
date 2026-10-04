@@ -300,25 +300,163 @@ body {
   overflow-y: auto;
 }
 
-/* ── Responsive: sidebar colapsado arriba en móvil ── */
-@media (max-width: 640px) {
-  .app-root { flex-direction: column; }
+/* ── Responsive: Tablet (768px) ── */
+@media (max-width: 860px) {
   .app-sidebar {
-    position: static;
+    width: 200px;
+    padding: 1rem 0.65rem;
+  }
+  .app-tab {
+    padding: .4rem .55rem;
+    font-size: .83rem;
+  }
+  .app-tab-badge {
+    width: 34px;
+    height: 34px;
+  }
+}
+
+/* ── Responsive: Mobile — Bottom Navigation Bar ── */
+@media (max-width: 640px) {
+  /* Layout: contenido primero, nav al fondo */
+  .app-root {
+    flex-direction: column;
+    /* Espacio para el bottom nav + safe area de iOS */
+    padding-bottom: calc(68px + env(safe-area-inset-bottom, 0px));
+  }
+
+  /* Ocultar el sidebar lateral completamente */
+  .app-sidebar {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    top: auto;
     width: 100%;
     height: auto;
+    max-height: none;
     flex-direction: row;
-    align-items: center;
-    justify-content: space-between;
-    padding: .75rem 1rem;
+    align-items: stretch;
+    justify-content: stretch;
+    padding: 0;
+    padding-bottom: env(safe-area-inset-bottom, 0px);
     border-right: none;
-    border-bottom: 1px solid #2a2d3a;
-    overflow-x: auto;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(10, 12, 18, 0.97);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    overflow: visible;
+    z-index: 200;
+    box-shadow: 0 -4px 24px rgba(0,0,0,.5);
   }
-  .app-sidebar-top { flex-direction: row; align-items: center; gap: 1rem; flex: 1; }
-  .app-sidebar-bottom { flex-direction: row; align-items: center; gap: .5rem; }
-  .app-tabs { flex-direction: row; gap: .35rem; }
-  .app-tab { width: auto; padding: .35rem .6rem; font-size: .8rem; }
-  .app-tab-badge { width: 32px; height: 32px; border-radius: 9px; }
-  .app-main { min-height: calc(100vh - 64px); }
+
+  /* Top section contiene logo (oculto) + tabs */
+  .app-sidebar-top {
+    flex: 1;
+    flex-direction: row;
+    align-items: stretch;
+    gap: 0;
+    overflow-x: auto;
+    /* ocultar scrollbar */
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  .app-sidebar-top::-webkit-scrollbar { display: none; }
+
+  /* Ocultar logo en mobile */
+  .app-logo { display: none; }
+
+  /* Tabs como iconos de bottom nav */
+  .app-tabs {
+    flex-direction: row;
+    gap: 0;
+    flex: 1;
+    align-items: stretch;
+  }
+
+  .app-tab {
+    flex: 1;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: .25rem;
+    padding: .55rem .25rem;
+    border-radius: 0;
+    border: none;
+    min-width: 56px;
+    background: transparent;
+    color: #64748b;
+    font-size: .64rem;
+    font-weight: 500;
+    width: auto;
+  }
+
+  .app-tab:hover {
+    background: rgba(255,255,255,.04);
+    border-color: transparent;
+  }
+
+  .app-tab--active {
+    color: #fff;
+    background: transparent;
+    box-shadow: none;
+    border-color: transparent;
+  }
+
+  .app-tab-badge {
+    width: 28px;
+    height: 28px;
+    border-radius: 8px;
+    box-shadow: none;
+  }
+
+  .app-tab--active .app-tab-badge {
+    box-shadow: 0 0 12px var(--tab-glow);
+  }
+
+  /* Etiqueta de texto bajo el ícono (acortada) */
+  .app-tab-label {
+    font-size: .58rem;
+    letter-spacing: .01em;
+    text-overflow: ellipsis;
+    overflow: hidden;
+    white-space: nowrap;
+    max-width: 64px;
+    text-align: center;
+  }
+
+  /* Ocultar el bottom sidebar (rol badge + logout) en mobile */
+  .app-sidebar-bottom {
+    display: none;
+  }
+
+  /* Contenido principal sin límite de altura mínima */
+  .app-main {
+    min-height: 100vh;
+    flex: 1;
+  }
+}
+
+/* ── Mobile: evitar doble scroll de los paneles hijos ── */
+@media (max-width: 640px) {
+  .app-main > * {
+    min-height: auto !important;
+  }
+  .app-main {
+    background: #0f1117;
+  }
+}
+
+/* ── Pantallas muy pequeñas: ocultar label del tab ── */
+@media (max-width: 380px) {
+  .app-tab-label {
+    display: none;
+  }
+  .app-tab {
+    min-width: 44px;
+  }
+  .app-tab-badge {
+    width: 30px;
+    height: 30px;
+  }
 }

@@ -292,9 +292,23 @@
 /* ── Responsive ───────────────────────────────────── */
 @media (max-width: 860px) {
   .db-grid-2 { grid-template-columns: 1fr; }
-  .db-root    { padding: 1.5rem 1rem; }
+  .db-root    { padding: 1.5rem 1.25rem; gap: 1.5rem; }
+  .db-kpis    { grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 1rem; }
+}
+@media (max-width: 640px) {
+  .db-root       { padding: 1.25rem 1rem; gap: 1.25rem; }
+  .db-hero-title { font-size: 1.4rem; }
+  .db-kpi        { padding: 1rem 1.1rem; border-radius: 16px; }
+  .db-kpi-value  { font-size: 1.5rem; }
+  .db-section    { padding: 1.1rem; }
+  .db-bars       { min-height: 120px; }
 }
 @media (max-width: 480px) {
-  .db-kpis { grid-template-columns: 1fr 1fr; }
-  .db-hero-title { font-size: 1.35rem; }
+  .db-kpis       { grid-template-columns: 1fr 1fr; }
+  .db-hero-title { font-size: 1.25rem; }
+  .db-kpi-icon-wrap { width: 44px; height: 44px; border-radius: 12px; }
+}
+@media (max-width: 360px) {
+  .db-kpis { grid-template-columns: 1fr; }
+  .db-root  { padding: 1rem .85rem; }
 }

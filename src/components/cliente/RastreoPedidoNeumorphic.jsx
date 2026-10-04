@@ -517,7 +517,7 @@ export default function RastreoPedidoNeumorphic({ session }) {
       </section>
 
       {/* ── SECCIÓN 2: GRID DOBLE (DETALLES Y CHAT EN VIVO) ── */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 lg:gap-8">
         {/* Columna Izquierda: Información del Pedido y Repartidor (5 cols) */}
         <div className="lg:col-span-5 space-y-6">
           {/* Tarjeta de Resumen del Pedido */}
@@ -610,7 +610,7 @@ export default function RastreoPedidoNeumorphic({ session }) {
 
         {/* Columna Derecha: Chat en Tiempo Real (7 cols) */}
         <div className="lg:col-span-7">
-          <div className="neu-card rounded-3xl p-6 flex flex-col h-[560px]">
+          <div className="neu-card rounded-3xl p-4 md:p-6 flex flex-col h-[420px] md:h-[560px]">
             {/* Cabecera del Chat */}
             <div className="flex items-center justify-between pb-4 border-b border-white/5">
               <div className="flex items-center gap-3">

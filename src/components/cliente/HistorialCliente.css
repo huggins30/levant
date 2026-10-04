@@ -179,10 +179,15 @@
 }
 
 /* Table */
+.hc-table-wrap {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
 .hc-table {
   width: 100%;
   border-collapse: collapse;
   font-size: .875rem;
+  min-width: 380px;
 }
 .hc-table th {
   text-align: left;
@@ -481,9 +486,26 @@
   cursor: not-allowed;
 }
 
-@media (max-width: 480px) {
-  .hc-wrapper { padding: 1.25rem .75rem; }
+@media (max-width: 640px) {
+  .hc-wrapper { padding: 1.25rem .85rem; }
+  .hc-top { flex-direction: column; align-items: flex-start; gap: .75rem; }
+  .hc-refresh { align-self: flex-end; margin-top: -2.8rem; }
   .hc-card-header { padding: .85rem 1rem; }
   .hc-card-body   { padding: 1rem; }
   .hc-badge { font-size: .68rem; }
+  /* Tabla de productos con scroll horizontal */
+  .hc-table-wrap { overflow-x: auto; }
+  /* Confirmar card vertical */
+  .hc-confirmar-card { flex-direction: column; gap: .85rem; }
+  .hc-btn-confirmar-recibido { width: 100%; justify-content: center; }
+  /* Card right: stack */
+  .hc-card-right { flex-wrap: wrap; gap: .4rem; }
+}
+@media (max-width: 480px) {
+  .hc-wrapper { padding: 1rem .75rem; }
+  .hc-title { font-size: 1.25rem; }
+  .hc-card-left { flex-direction: column; align-items: flex-start; gap: .35rem; }
+  .hc-card-right { justify-content: flex-end; }
+  /* Ocultar columna de subtotal en tabla para ahorrar espacio */
+  .hc-td-num:last-child, .hc-th-num:last-child { display: none; }
 }

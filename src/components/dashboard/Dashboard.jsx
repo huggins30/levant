@@ -1,9 +1,10 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { supabase } from '../../lib/supabase';
 import { 
   BoxIcon, CheckCircleIcon, DollarIcon, StarIcon, MotoIcon, 
   ShoppingBagIcon, CloseIcon, WrenchIcon 
 } from '../common/Icons';
+import { User, LogOut, ChevronDown } from 'lucide-react';
 import './Dashboard.css';
 
 // ── Colores ──────────────────────────────────────────
@@ -135,10 +136,62 @@ function Section({ title, subtitle, children }) {
   );
 }
 
+// ── Avatar / menú de perfil ──────────────────────────────────────
+function ProfileMenu({ session, onSignOut, onGoToProfile }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+
+  useEffect(() => {
+    function handleOutside(e) {
+      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
+    }
+    document.addEventListener('mousedown', handleOutside);
+    return () => document.removeEventListener('mousedown', handleOutside);
+  }, []);
+
+  const email = session?.user?.email ?? '';
+  const initials = email ? email[0].toUpperCase() : '?';
+
+  return (
+    <div className="db-profile-menu" ref={ref}>
+      <button
+        id="btn-profile-menu"
+        className="db-profile-avatar"
+        onClick={() => setOpen(v => !v)}
+        aria-label="Menu de perfil"
+      >
+        <span className="db-profile-initials">{initials}</span>
+        <ChevronDown size={12} strokeWidth={2.5} className={`db-profile-chevron${open ? ' db-profile-chevron--open' : ''}`} />
+      </button>
+
+      {open && (
+        <div className="db-profile-dropdown">
+          <div className="db-profile-dropdown-email">{email}</div>
+          <button
+            className="db-profile-dropdown-item"
+            onClick={() => { setOpen(false); onGoToProfile?.(); }}
+          >
+            <User size={15} strokeWidth={2.1} />
+            Mi Perfil
+          </button>
+          <div className="db-profile-dropdown-divider" />
+          <button
+            className="db-profile-dropdown-item db-profile-dropdown-item--danger"
+            onClick={() => { setOpen(false); onSignOut?.(); }}
+          >
+            <LogOut size={15} strokeWidth={2.1} />
+            Cerrar Sesion
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ════════════════════════════════════════════════════
 // DASHBOARD CLIENTE
 // ════════════════════════════════════════════════════
-function DashboardCliente({ session }) {
+function DashboardCliente({ session, onSignOut, onGoToProfile }) {
   const [pedidos, setPedidos]   = useState([]);
   const [pagos, setPagos]       = useState([]);
   const [loading, setLoading]   = useState(true);
@@ -214,7 +267,10 @@ function DashboardCliente({ session }) {
           <h1 className="db-hero-title">Mi Dashboard</h1>
           <p className="db-hero-sub">Resumen de tu actividad como cliente</p>
         </div>
-        <span className="db-hero-badge db-hero-badge--cliente">👤 Cliente</span>
+        <div className="db-hero-right">
+          <span className="db-hero-badge db-hero-badge--cliente">👤 Cliente</span>
+          <ProfileMenu session={session} onSignOut={onSignOut} onGoToProfile={onGoToProfile} />
+        </div>
       </div>
 
       {/* KPIs */}
@@ -247,7 +303,7 @@ function DashboardCliente({ session }) {
 // ════════════════════════════════════════════════════
 // DASHBOARD COMERCIO
 // ════════════════════════════════════════════════════
-function DashboardComercio({ session }) {
+function DashboardComercio({ session, onSignOut, onGoToProfile }) {
   const [pedidos, setPedidos]     = useState([]);
   const [productos, setProductos] = useState([]);
   const [comercio, setComercio]   = useState(null);
@@ -373,7 +429,10 @@ function DashboardComercio({ session }) {
           <h1 className="db-hero-title">{comercio.nombre_comercial}</h1>
           <p className="db-hero-sub">Dashboard del comercio · {comercio.categoria}</p>
         </div>
-        <span className="db-hero-badge db-hero-badge--comercio">🏪 Comercio</span>
+        <div className="db-hero-right">
+          <span className="db-hero-badge db-hero-badge--comercio">🏪 Comercio</span>
+          <ProfileMenu session={session} onSignOut={onSignOut} onGoToProfile={onGoToProfile} />
+        </div>
       </div>
 
       <div className="db-kpis">
@@ -414,7 +473,7 @@ function DashboardComercio({ session }) {
 // ════════════════════════════════════════════════════
 // DASHBOARD REPARTIDOR
 // ════════════════════════════════════════════════════
-function DashboardRepartidor({ session }) {
+function DashboardRepartidor({ session, onSignOut, onGoToProfile }) {
   const [pedidos, setPedidos]     = useState([]);
   const [repartidor, setRepartidor] = useState(null);
   const [loading, setLoading]     = useState(true);
@@ -501,7 +560,10 @@ function DashboardRepartidor({ session }) {
             {repartidor.disponible ? 'Disponible' : 'No disponible'}
           </p>
         </div>
-        <span className="db-hero-badge db-hero-badge--repartidor">🛵 Repartidor</span>
+        <div className="db-hero-right">
+          <span className="db-hero-badge db-hero-badge--repartidor">🛵 Repartidor</span>
+          <ProfileMenu session={session} onSignOut={onSignOut} onGoToProfile={onGoToProfile} />
+        </div>
       </div>
 
       <div className="db-kpis">
@@ -539,8 +601,8 @@ function DashboardRepartidor({ session }) {
 // ════════════════════════════════════════════════════
 // COMPONENTE PRINCIPAL
 // ════════════════════════════════════════════════════
-export default function Dashboard({ session, rol }) {
-  if (rol === 'comercio')   return <DashboardComercio   session={session} />;
-  if (rol === 'repartidor') return <DashboardRepartidor session={session} />;
-  return <DashboardCliente session={session} />;
+export default function Dashboard({ session, rol, onSignOut, onGoToProfile }) {
+  if (rol === 'comercio')   return <DashboardComercio   session={session} onSignOut={onSignOut} onGoToProfile={onGoToProfile} />;
+  if (rol === 'repartidor') return <DashboardRepartidor session={session} onSignOut={onSignOut} onGoToProfile={onGoToProfile} />;
+  return <DashboardCliente session={session} onSignOut={onSignOut} onGoToProfile={onGoToProfile} />;
 }

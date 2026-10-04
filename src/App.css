@@ -293,6 +293,11 @@ body {
   transform: translateY(-1px);
 }
 
+/* Oculto en desktop, solo se muestra en mobile via @media */
+.app-tab-logout-mobile {
+  display: none;
+}
+
 /* ── Contenido principal ── */
 .app-main {
   flex: 1;
@@ -428,6 +433,34 @@ body {
   /* Ocultar el bottom sidebar (rol badge + logout) en mobile */
   .app-sidebar-bottom {
     display: none;
+  }
+
+  /* Botón logout en la bottom nav (solo mobile) */
+  .app-tab-logout-mobile {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: .25rem;
+    padding: .55rem .25rem;
+    border: none;
+    border-radius: 0;
+    background: transparent;
+    color: #f87171;
+    font-family: 'Inter', sans-serif;
+    font-size: .64rem;
+    font-weight: 500;
+    cursor: pointer;
+    min-width: 56px;
+    flex-shrink: 0;
+    transition: all .22s ease;
+  }
+  .app-tab-logout-mobile:hover {
+    background: rgba(248, 113, 113, 0.08);
+  }
+  .app-tab-logout-mobile .app-tab-label {
+    font-size: .58rem;
+    color: #f87171;
   }
 
   /* Contenido principal sin límite de altura mínima */

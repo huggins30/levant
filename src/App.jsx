@@ -242,6 +242,18 @@ export default function App() {
               );
             })}
           </nav>
+          {/* Botón cerrar sesión — visible solo en mobile (bottom nav) */}
+          <button
+            id="btn-logout-mobile"
+            className="app-tab-logout-mobile"
+            onClick={() => supabase.auth.signOut()}
+            title="Cerrar Sesión"
+          >
+            <span className="app-tab-badge" style={{ '--tab-bg': 'rgba(248,113,113,0.12)', '--tab-border': 'rgba(248,113,113,0.3)', '--tab-color': '#f87171', '--tab-glow': 'rgba(248,113,113,0.4)' }}>
+              <LogOut size={18} strokeWidth={2.2} className="app-tab-icon" />
+            </span>
+            <span className="app-tab-label">Salir</span>
+          </button>
         </div>
 
         <div className="app-sidebar-bottom">
@@ -286,7 +298,7 @@ export default function App() {
       {/* Main */}
       <main className="app-main">
         {/* ── DASHBOARD (todos los roles) ── */}
-        {tab === 'dashboard' && <Dashboard session={session} rol={rol} />}
+        {tab === 'dashboard' && <Dashboard session={session} rol={rol} onSignOut={() => supabase.auth.signOut()} onGoToProfile={() => setTab(rol === 'cliente' ? 'perfil' : 'panel')} />}
 
         {/* ── CLIENTE ── */}
         {rol === 'cliente' && tab === 'tracking'  && <RastreoPedidoNeumorphic session={session} />}

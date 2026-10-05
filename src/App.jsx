@@ -175,14 +175,21 @@ export default function App() {
       .then(({ data }) => {
         setPerfil(data);
         const userRol = data?.rol ?? 'cliente';
-        setActiveRolView(userRol);
-        setTab(ROL_TABS[userRol]?.[0]?.id ?? 'dashboard');
+        const savedView = localStorage.getItem(`levant_rol_view_${session.user.id}`);
+        const effectiveView = (userRol === 'comercio' && (savedView === 'cliente' || savedView === 'comercio'))
+          ? savedView
+          : userRol;
+        setActiveRolView(effectiveView);
+        setTab(ROL_TABS[effectiveView]?.[0]?.id ?? 'dashboard');
       });
   }, [session]);
 
   const handleSwitchMode = (newMode) => {
     if (perfil?.rol !== 'comercio') return; // Solo comercios pueden alternar modo
     setActiveRolView(newMode);
+    if (session?.user?.id) {
+      localStorage.setItem(`levant_rol_view_${session.user.id}`, newMode);
+    }
     setTab(ROL_TABS[newMode]?.[0]?.id ?? 'dashboard');
   };
 
@@ -207,6 +214,36 @@ export default function App() {
   // ── JSX ──────────────────────────────────────────────────────────
   return (
     <div className="app-root">
+      {/* Mobile Topbar para rol Comercio (permite alternar entre Comercio y Cliente en celular) */}
+      {registeredRol === 'comercio' && (
+        <header className="app-mobile-topbar">
+          <div className="app-mobile-topbar-brand">
+            <img src="/logo.png" alt="Levant" className="app-mobile-logo-img" />
+            <span className="app-mobile-brand-name">Levant</span>
+          </div>
+          <div className="app-mobile-rol-switcher">
+            <div className="app-rol-toggle">
+              <button
+                type="button"
+                className={`app-rol-toggle-btn ${rol === 'comercio' ? 'app-rol-toggle-btn--active' : ''}`}
+                onClick={() => handleSwitchMode('comercio')}
+              >
+                <Store size={13} strokeWidth={2.2} />
+                <span>Comercio</span>
+              </button>
+              <button
+                type="button"
+                className={`app-rol-toggle-btn ${rol === 'cliente' ? 'app-rol-toggle-btn--active app-rol-toggle-btn--active-cliente' : ''}`}
+                onClick={() => handleSwitchMode('cliente')}
+              >
+                <User size={13} strokeWidth={2.2} />
+                <span>Cliente</span>
+              </button>
+            </div>
+          </div>
+        </header>
+      )}
+
       {/* Sidebar */}
       <aside className="app-sidebar">
         <div className="app-sidebar-top">
@@ -242,6 +279,36 @@ export default function App() {
               );
             })}
           </nav>
+
+          {/* Botón cambiar modo Comercio / Cliente en mobile bottom nav */}
+          {registeredRol === 'comercio' && (
+            <button
+              id="btn-rol-toggle-mobile"
+              className="app-tab-rol-mobile"
+              onClick={() => handleSwitchMode(rol === 'comercio' ? 'cliente' : 'comercio')}
+              title={rol === 'comercio' ? 'Cambiar a modo Cliente' : 'Cambiar a modo Comercio'}
+            >
+              <span
+                className="app-tab-badge"
+                style={{
+                  '--tab-bg': rol === 'comercio' ? 'rgba(108,99,255,0.18)' : 'rgba(16,185,129,0.18)',
+                  '--tab-border': rol === 'comercio' ? 'rgba(108,99,255,0.35)' : 'rgba(16,185,129,0.35)',
+                  '--tab-color': rol === 'comercio' ? '#a5b4fc' : '#6ee7b7',
+                  '--tab-glow': rol === 'comercio' ? 'rgba(108,99,255,0.4)' : 'rgba(16,185,129,0.4)',
+                }}
+              >
+                {rol === 'comercio' ? (
+                  <User size={18} strokeWidth={2.2} className="app-tab-icon" />
+                ) : (
+                  <Store size={18} strokeWidth={2.2} className="app-tab-icon" />
+                )}
+              </span>
+              <span className="app-tab-label">
+                {rol === 'comercio' ? 'A Cliente' : 'A Comercio'}
+              </span>
+            </button>
+          )}
+
           {/* Botón cerrar sesión — visible solo en mobile (bottom nav) */}
           <button
             id="btn-logout-mobile"
@@ -271,7 +338,7 @@ export default function App() {
                 </button>
                 <button
                   type="button"
-                  className={`app-rol-toggle-btn ${rol === 'cliente' ? 'app-rol-toggle-btn--active' : ''}`}
+                  className={`app-rol-toggle-btn ${rol === 'cliente' ? 'app-rol-toggle-btn--active app-rol-toggle-btn--active-cliente' : ''}`}
                   onClick={() => handleSwitchMode('cliente')}
                 >
                   <User size={13} strokeWidth={2.2} />
@@ -298,7 +365,16 @@ export default function App() {
       {/* Main */}
       <main className="app-main">
         {/* ── DASHBOARD (todos los roles) ── */}
-        {tab === 'dashboard' && <Dashboard session={session} rol={rol} onSignOut={() => supabase.auth.signOut()} onGoToProfile={() => setTab(rol === 'cliente' ? 'perfil' : 'panel')} />}
+        {tab === 'dashboard' && (
+          <Dashboard
+            session={session}
+            rol={rol}
+            registeredRol={registeredRol}
+            onSwitchMode={handleSwitchMode}
+            onSignOut={() => supabase.auth.signOut()}
+            onGoToProfile={() => setTab(rol === 'cliente' ? 'perfil' : 'panel')}
+          />
+        )}
 
         {/* ── CLIENTE ── */}
         {rol === 'cliente' && tab === 'tracking'  && <RastreoPedidoNeumorphic session={session} />}

@@ -247,6 +247,13 @@ body {
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
 }
 
+.app-rol-toggle-btn--active-cliente {
+  background: rgba(108, 99, 255, 0.2);
+  color: #a5b4fc;
+  border: 1px solid rgba(108, 99, 255, 0.38);
+  box-shadow: 0 1px 4px rgba(108, 99, 255, 0.22);
+}
+
 .app-rol-badge {
   display: inline-flex;
   align-items: center;
@@ -293,8 +300,14 @@ body {
   transform: translateY(-1px);
 }
 
-/* Oculto en desktop, solo se muestra en mobile via @media */
+/* Ocultos en desktop, solo se muestran en mobile via @media */
+.app-mobile-topbar {
+  display: none;
+}
 .app-tab-logout-mobile {
+  display: none;
+}
+.app-tab-rol-mobile {
   display: none;
 }
 
@@ -461,6 +474,83 @@ body {
   .app-tab-logout-mobile .app-tab-label {
     font-size: .58rem;
     color: #f87171;
+  }
+
+  /* Botón cambiar rol en la bottom nav (solo mobile) */
+  .app-tab-rol-mobile {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: .25rem;
+    padding: .55rem .25rem;
+    border: none;
+    border-radius: 0;
+    background: transparent;
+    font-family: 'Inter', sans-serif;
+    font-size: .64rem;
+    font-weight: 500;
+    cursor: pointer;
+    min-width: 56px;
+    flex-shrink: 0;
+    transition: all .22s ease;
+  }
+  .app-tab-rol-mobile:hover {
+    background: rgba(255, 255, 255, 0.04);
+  }
+  .app-tab-rol-mobile .app-tab-label {
+    font-size: .58rem;
+    font-weight: 600;
+    color: #cbd5e1;
+  }
+
+  /* Mobile topbar para Comercio (barra superior sticky con switcher) */
+  .app-mobile-topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: .5rem .85rem;
+    background: rgba(10, 12, 18, 0.95);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    box-shadow: 0 2px 14px rgba(0, 0, 0, 0.4);
+  }
+
+  .app-mobile-topbar-brand {
+    display: flex;
+    align-items: center;
+    gap: .45rem;
+  }
+
+  .app-mobile-logo-img {
+    width: 24px;
+    height: 24px;
+    object-fit: contain;
+  }
+
+  .app-mobile-brand-name {
+    font-size: 1.05rem;
+    font-weight: 800;
+    color: #fff;
+    letter-spacing: -.02em;
+  }
+
+  .app-mobile-rol-switcher {
+    display: flex;
+    align-items: center;
+  }
+
+  .app-mobile-rol-switcher .app-rol-toggle {
+    padding: 2px;
+  }
+
+  .app-mobile-rol-switcher .app-rol-toggle-btn {
+    padding: .3rem .55rem;
+    font-size: .72rem;
   }
 
   /* Contenido principal sin límite de altura mínima */

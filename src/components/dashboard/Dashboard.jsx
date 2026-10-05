@@ -4,7 +4,7 @@ import {
   BoxIcon, CheckCircleIcon, DollarIcon, StarIcon, MotoIcon, 
   ShoppingBagIcon, CloseIcon, WrenchIcon 
 } from '../common/Icons';
-import { User, LogOut, ChevronDown } from 'lucide-react';
+import { User, Store, LogOut, ChevronDown } from 'lucide-react';
 import './Dashboard.css';
 
 // ── Colores ──────────────────────────────────────────
@@ -137,7 +137,7 @@ function Section({ title, subtitle, children }) {
 }
 
 // ── Avatar / menú de perfil ──────────────────────────────────────
-function ProfileMenu({ session, onSignOut, onGoToProfile }) {
+function ProfileMenu({ session, onSignOut, onGoToProfile, registeredRol, currentRol, onSwitchMode }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
 
@@ -158,7 +158,7 @@ function ProfileMenu({ session, onSignOut, onGoToProfile }) {
         id="btn-profile-menu"
         className="db-profile-avatar"
         onClick={() => setOpen(v => !v)}
-        aria-label="Menu de perfil"
+        aria-label="Menú de perfil"
       >
         <span className="db-profile-initials">{initials}</span>
         <ChevronDown size={12} strokeWidth={2.5} className={`db-profile-chevron${open ? ' db-profile-chevron--open' : ''}`} />
@@ -167,6 +167,32 @@ function ProfileMenu({ session, onSignOut, onGoToProfile }) {
       {open && (
         <div className="db-profile-dropdown">
           <div className="db-profile-dropdown-email">{email}</div>
+
+          {registeredRol === 'comercio' && (
+            <>
+              <button
+                className="db-profile-dropdown-item db-profile-dropdown-item--mode"
+                onClick={() => {
+                  setOpen(false);
+                  onSwitchMode?.(currentRol === 'comercio' ? 'cliente' : 'comercio');
+                }}
+              >
+                {currentRol === 'comercio' ? (
+                  <>
+                    <User size={15} strokeWidth={2.1} />
+                    <span>Cambiar a Modo Cliente</span>
+                  </>
+                ) : (
+                  <>
+                    <Store size={15} strokeWidth={2.1} />
+                    <span>Volver a Modo Comercio</span>
+                  </>
+                )}
+              </button>
+              <div className="db-profile-dropdown-divider" />
+            </>
+          )}
+
           <button
             className="db-profile-dropdown-item"
             onClick={() => { setOpen(false); onGoToProfile?.(); }}
@@ -180,7 +206,7 @@ function ProfileMenu({ session, onSignOut, onGoToProfile }) {
             onClick={() => { setOpen(false); onSignOut?.(); }}
           >
             <LogOut size={15} strokeWidth={2.1} />
-            Cerrar Sesion
+            Cerrar Sesión
           </button>
         </div>
       )}
@@ -191,7 +217,7 @@ function ProfileMenu({ session, onSignOut, onGoToProfile }) {
 // ════════════════════════════════════════════════════
 // DASHBOARD CLIENTE
 // ════════════════════════════════════════════════════
-function DashboardCliente({ session, onSignOut, onGoToProfile }) {
+function DashboardCliente({ session, onSignOut, onGoToProfile, registeredRol, currentRol, onSwitchMode }) {
   const [pedidos, setPedidos]   = useState([]);
   const [pagos, setPagos]       = useState([]);
   const [loading, setLoading]   = useState(true);
@@ -268,8 +294,36 @@ function DashboardCliente({ session, onSignOut, onGoToProfile }) {
           <p className="db-hero-sub">Resumen de tu actividad como cliente</p>
         </div>
         <div className="db-hero-right">
-          <span className="db-hero-badge db-hero-badge--cliente">👤 Cliente</span>
-          <ProfileMenu session={session} onSignOut={onSignOut} onGoToProfile={onGoToProfile} />
+          {registeredRol === 'comercio' ? (
+            <div className="db-rol-toggle">
+              <button
+                type="button"
+                className={`db-rol-toggle-btn ${currentRol === 'comercio' ? 'db-rol-toggle-btn--active' : ''}`}
+                onClick={() => onSwitchMode?.('comercio')}
+              >
+                <Store size={12} strokeWidth={2.2} />
+                <span>Comercio</span>
+              </button>
+              <button
+                type="button"
+                className={`db-rol-toggle-btn ${currentRol === 'cliente' ? 'db-rol-toggle-btn--active db-rol-toggle-btn--active-cliente' : ''}`}
+                onClick={() => onSwitchMode?.('cliente')}
+              >
+                <User size={12} strokeWidth={2.2} />
+                <span>Cliente</span>
+              </button>
+            </div>
+          ) : (
+            <span className="db-hero-badge db-hero-badge--cliente">👤 Cliente</span>
+          )}
+          <ProfileMenu
+            session={session}
+            onSignOut={onSignOut}
+            onGoToProfile={onGoToProfile}
+            registeredRol={registeredRol}
+            currentRol={currentRol}
+            onSwitchMode={onSwitchMode}
+          />
         </div>
       </div>
 
@@ -303,7 +357,7 @@ function DashboardCliente({ session, onSignOut, onGoToProfile }) {
 // ════════════════════════════════════════════════════
 // DASHBOARD COMERCIO
 // ════════════════════════════════════════════════════
-function DashboardComercio({ session, onSignOut, onGoToProfile }) {
+function DashboardComercio({ session, onSignOut, onGoToProfile, registeredRol, currentRol, onSwitchMode }) {
   const [pedidos, setPedidos]     = useState([]);
   const [productos, setProductos] = useState([]);
   const [comercio, setComercio]   = useState(null);
@@ -430,8 +484,36 @@ function DashboardComercio({ session, onSignOut, onGoToProfile }) {
           <p className="db-hero-sub">Dashboard del comercio · {comercio.categoria}</p>
         </div>
         <div className="db-hero-right">
-          <span className="db-hero-badge db-hero-badge--comercio">🏪 Comercio</span>
-          <ProfileMenu session={session} onSignOut={onSignOut} onGoToProfile={onGoToProfile} />
+          {registeredRol === 'comercio' ? (
+            <div className="db-rol-toggle">
+              <button
+                type="button"
+                className={`db-rol-toggle-btn ${currentRol === 'comercio' ? 'db-rol-toggle-btn--active' : ''}`}
+                onClick={() => onSwitchMode?.('comercio')}
+              >
+                <Store size={12} strokeWidth={2.2} />
+                <span>Comercio</span>
+              </button>
+              <button
+                type="button"
+                className={`db-rol-toggle-btn ${currentRol === 'cliente' ? 'db-rol-toggle-btn--active db-rol-toggle-btn--active-cliente' : ''}`}
+                onClick={() => onSwitchMode?.('cliente')}
+              >
+                <User size={12} strokeWidth={2.2} />
+                <span>Cliente</span>
+              </button>
+            </div>
+          ) : (
+            <span className="db-hero-badge db-hero-badge--comercio">🏪 Comercio</span>
+          )}
+          <ProfileMenu
+            session={session}
+            onSignOut={onSignOut}
+            onGoToProfile={onGoToProfile}
+            registeredRol={registeredRol}
+            currentRol={currentRol}
+            onSwitchMode={onSwitchMode}
+          />
         </div>
       </div>
 
@@ -473,7 +555,7 @@ function DashboardComercio({ session, onSignOut, onGoToProfile }) {
 // ════════════════════════════════════════════════════
 // DASHBOARD REPARTIDOR
 // ════════════════════════════════════════════════════
-function DashboardRepartidor({ session, onSignOut, onGoToProfile }) {
+function DashboardRepartidor({ session, onSignOut, onGoToProfile, registeredRol, currentRol, onSwitchMode }) {
   const [pedidos, setPedidos]     = useState([]);
   const [repartidor, setRepartidor] = useState(null);
   const [loading, setLoading]     = useState(true);
@@ -562,7 +644,14 @@ function DashboardRepartidor({ session, onSignOut, onGoToProfile }) {
         </div>
         <div className="db-hero-right">
           <span className="db-hero-badge db-hero-badge--repartidor">🛵 Repartidor</span>
-          <ProfileMenu session={session} onSignOut={onSignOut} onGoToProfile={onGoToProfile} />
+          <ProfileMenu
+            session={session}
+            onSignOut={onSignOut}
+            onGoToProfile={onGoToProfile}
+            registeredRol={registeredRol}
+            currentRol={currentRol}
+            onSwitchMode={onSwitchMode}
+          />
         </div>
       </div>
 
@@ -601,8 +690,39 @@ function DashboardRepartidor({ session, onSignOut, onGoToProfile }) {
 // ════════════════════════════════════════════════════
 // COMPONENTE PRINCIPAL
 // ════════════════════════════════════════════════════
-export default function Dashboard({ session, rol, onSignOut, onGoToProfile }) {
-  if (rol === 'comercio')   return <DashboardComercio   session={session} onSignOut={onSignOut} onGoToProfile={onGoToProfile} />;
-  if (rol === 'repartidor') return <DashboardRepartidor session={session} onSignOut={onSignOut} onGoToProfile={onGoToProfile} />;
-  return <DashboardCliente session={session} onSignOut={onSignOut} onGoToProfile={onGoToProfile} />;
+export default function Dashboard({ session, rol, registeredRol, onSwitchMode, onSignOut, onGoToProfile }) {
+  if (rol === 'comercio') {
+    return (
+      <DashboardComercio
+        session={session}
+        currentRol={rol}
+        registeredRol={registeredRol}
+        onSwitchMode={onSwitchMode}
+        onSignOut={onSignOut}
+        onGoToProfile={onGoToProfile}
+      />
+    );
+  }
+  if (rol === 'repartidor') {
+    return (
+      <DashboardRepartidor
+        session={session}
+        currentRol={rol}
+        registeredRol={registeredRol}
+        onSwitchMode={onSwitchMode}
+        onSignOut={onSignOut}
+        onGoToProfile={onGoToProfile}
+      />
+    );
+  }
+  return (
+    <DashboardCliente
+      session={session}
+      currentRol={rol}
+      registeredRol={registeredRol}
+      onSwitchMode={onSwitchMode}
+      onSignOut={onSignOut}
+      onGoToProfile={onGoToProfile}
+    />
+  );
 }

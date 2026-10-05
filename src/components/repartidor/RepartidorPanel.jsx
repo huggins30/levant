@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../../lib/supabase';
 import './RepartidorPanel.css';
 
-const VEHICULOS = ['moto', 'carro', 'bicicleta', 'a_pie'];
+const VEHICULOS = ['moto', 'carro'];
 const VEHICULO_ICON = { moto: '🏍️', carro: '🚗', bicicleta: '🚲', a_pie: '🚶' };
 
 const ESTADO_BADGE = {

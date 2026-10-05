@@ -214,35 +214,66 @@ export default function App() {
   // ── JSX ──────────────────────────────────────────────────────────
   return (
     <div className="app-root">
-      {/* Mobile Topbar para rol Comercio (permite alternar entre Comercio y Cliente en celular) */}
-      {registeredRol === 'comercio' && (
-        <header className="app-mobile-topbar">
-          <div className="app-mobile-topbar-brand">
+      {/* Mobile Topbar adaptada de acuerdo a cada usuario */}
+      <header className="app-mobile-topbar">
+        <div
+          className="app-mobile-topbar-brand"
+          onClick={() => setTab('dashboard')}
+          role="button"
+          tabIndex={0}
+          title="Ir al inicio"
+        >
+          <div className="app-mobile-logo-circle">
             <img src="/logo.png" alt="Levant" className="app-mobile-logo-img" />
-            <span className="app-mobile-brand-name">Levant</span>
           </div>
-          <div className="app-mobile-rol-switcher">
-            <div className="app-rol-toggle">
-              <button
-                type="button"
-                className={`app-rol-toggle-btn ${rol === 'comercio' ? 'app-rol-toggle-btn--active' : ''}`}
-                onClick={() => handleSwitchMode('comercio')}
-              >
-                <Store size={13} strokeWidth={2.2} />
-                <span>Comercio</span>
-              </button>
-              <button
-                type="button"
-                className={`app-rol-toggle-btn ${rol === 'cliente' ? 'app-rol-toggle-btn--active app-rol-toggle-btn--active-cliente' : ''}`}
-                onClick={() => handleSwitchMode('cliente')}
-              >
-                <User size={13} strokeWidth={2.2} />
-                <span>Cliente</span>
-              </button>
+          <span className="app-mobile-brand-name">Levant</span>
+        </div>
+
+        <div className="app-mobile-topbar-right">
+          {registeredRol === 'comercio' ? (
+            <div className="app-mobile-rol-switcher">
+              <div className="app-rol-toggle">
+                <button
+                  type="button"
+                  className={`app-rol-toggle-btn ${rol === 'comercio' ? 'app-rol-toggle-btn--active' : ''}`}
+                  onClick={() => handleSwitchMode('comercio')}
+                >
+                  <Store size={13} strokeWidth={2.2} />
+                  <span>Comercio</span>
+                </button>
+                <button
+                  type="button"
+                  className={`app-rol-toggle-btn ${rol === 'cliente' ? 'app-rol-toggle-btn--active app-rol-toggle-btn--active-cliente' : ''}`}
+                  onClick={() => handleSwitchMode('cliente')}
+                >
+                  <User size={13} strokeWidth={2.2} />
+                  <span>Cliente</span>
+                </button>
+              </div>
             </div>
-          </div>
-        </header>
-      )}
+          ) : registeredRol === 'repartidor' ? (
+            <button
+              type="button"
+              className="app-mobile-role-badge app-mobile-role-badge--repartidor"
+              onClick={() => setTab('panel')}
+              title="Panel de repartidor"
+            >
+              <Bike size={13} strokeWidth={2.2} />
+              <span>Repartidor</span>
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="app-mobile-role-badge app-mobile-role-badge--cliente"
+              onClick={() => setTab('perfil')}
+              title="Mi perfil de cliente"
+            >
+              <User size={13} strokeWidth={2.2} />
+              <span>Cliente</span>
+            </button>
+          )}
+        </div>
+      </header>
 
       {/* Sidebar */}
       <aside className="app-sidebar">

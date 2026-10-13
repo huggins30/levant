@@ -8,6 +8,7 @@ import HistorialCliente from './components/cliente/HistorialCliente';
 import TiendasCliente  from './components/cliente/TiendasCliente';
 import ComercioPanel    from './components/comercio/ComercioPanel';
 import RepartidorPanel  from './components/repartidor/RepartidorPanel';
+import AdminPanel      from './components/admin/AdminPanel';
 import Login            from './components/auth/Login';
 import Dashboard        from './components/dashboard/Dashboard';
 import RastreoPedidoNeumorphic from './components/cliente/RastreoPedidoNeumorphic';
@@ -22,6 +23,8 @@ import {
   Bike,
   PackageSearch,
   LogOut,
+  ShieldCheck,
+  Car,
 } from 'lucide-react';
 
 import './App.css';
@@ -133,6 +136,45 @@ const ROL_TABS = {
       glow: 'rgba(52, 211, 153, 0.4)',
     },
   ],
+  // ── Admin: Acceso total a gestión de la plataforma ──
+  admin: [
+    {
+      id: 'panel',
+      label: 'Admin Panel',
+      icon: ShieldCheck,
+      color: '#818cf8',
+      bg: 'rgba(99, 102, 241, 0.12)',
+      border: 'rgba(99, 102, 241, 0.3)',
+      glow: 'rgba(99, 102, 241, 0.4)',
+    },
+    {
+      id: 'comercios',
+      label: 'Comercios',
+      icon: Store,
+      color: '#2dd4bf',
+      bg: 'rgba(45, 212, 191, 0.12)',
+      border: 'rgba(45, 212, 191, 0.3)',
+      glow: 'rgba(45, 212, 191, 0.4)',
+    },
+    {
+      id: 'repartidores',
+      label: 'Repartidores',
+      icon: Bike,
+      color: '#fb923c',
+      bg: 'rgba(249, 115, 22, 0.12)',
+      border: 'rgba(249, 115, 22, 0.3)',
+      glow: 'rgba(249, 115, 22, 0.4)',
+    },
+    {
+      id: 'vehiculos',
+      label: 'Tipos Vehículo',
+      icon: Car,
+      color: '#38bdf8',
+      bg: 'rgba(56, 189, 248, 0.12)',
+      border: 'rgba(56, 189, 248, 0.3)',
+      glow: 'rgba(56, 189, 248, 0.4)',
+    },
+  ],
 };
 
 export default function App() {
@@ -180,7 +222,8 @@ export default function App() {
           ? savedView
           : userRol;
         setActiveRolView(effectiveView);
-        setTab(ROL_TABS[effectiveView]?.[0]?.id ?? 'dashboard');
+        // Admin siempre arranca en 'panel'
+        setTab(userRol === 'admin' ? 'panel' : (ROL_TABS[effectiveView]?.[0]?.id ?? 'dashboard'));
       });
   }, [session]);
 
@@ -209,6 +252,7 @@ export default function App() {
     cliente:    '👤 CLIENTE',
     comercio:   '🏪 COMERCIO',
     repartidor: '🛵 REPARTIDOR',
+    admin:      '🛡️ ADMIN',
   };
 
   // ── JSX ──────────────────────────────────────────────────────────
@@ -260,6 +304,16 @@ export default function App() {
             >
               <Bike size={13} strokeWidth={2.2} />
               <span>Repartidor</span>
+            </button>
+          ) : registeredRol === 'admin' ? (
+            <button
+              type="button"
+              className="app-mobile-role-badge app-mobile-role-badge--admin"
+              onClick={() => setTab('panel')}
+              title="Panel Admin"
+            >
+              <ShieldCheck size={13} strokeWidth={2.2} />
+              <span>Admin</span>
             </button>
           ) : (
             <button
@@ -379,9 +433,10 @@ export default function App() {
             </div>
           ) : (
             <span className={`app-rol-badge app-rol-badge--${rol}`}>
-              {rol === 'cliente' && <User size={14} strokeWidth={2.2} />}
-              {rol === 'comercio' && <Store size={14} strokeWidth={2.2} />}
-              {rol === 'repartidor' && <Bike size={14} strokeWidth={2.2} />}
+              {rol === 'cliente'    && <User size={14} strokeWidth={2.2} />}
+              {rol === 'comercio'  && <Store size={14} strokeWidth={2.2} />}
+              {rol === 'repartidor'&& <Bike size={14} strokeWidth={2.2} />}
+              {rol === 'admin'     && <ShieldCheck size={14} strokeWidth={2.2} />}
               <span>{rol.toUpperCase()}</span>
             </span>
           )}
@@ -429,6 +484,15 @@ export default function App() {
         {/* ── REPARTIDOR ── */}
         {rol === 'repartidor' && tab === 'pedidos' && <RepartidorPanel session={session} initialTab="pedidos" />}
         {rol === 'repartidor' && tab === 'panel'   && <RepartidorPanel session={session} initialTab="perfil" />}
+
+        {/* ── ADMIN ── panel único sincronizado con la barra lateral */}
+        {rol === 'admin' && (
+          <AdminPanel
+            session={session}
+            currentTab={tab}
+            onTabChange={(newTab) => setTab(newTab)}
+          />
+        )}
       </main>
     </div>
   );

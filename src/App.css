@@ -273,6 +273,17 @@ body {
 .app-rol-badge--cliente    { background: rgba(108, 99, 255, 0.15); color: #a5b4fc; border: 1px solid rgba(108, 99, 255, 0.3); }
 .app-rol-badge--comercio   { background: rgba(16, 185, 129, 0.12); color: #6ee7b7; border: 1px solid rgba(16, 185, 129, 0.28); }
 .app-rol-badge--repartidor { background: rgba(245, 158, 11, 0.12); color: #fcd34d; border: 1px solid rgba(245, 158, 11, 0.28); }
+.app-rol-badge--admin      { background: rgba(129, 140, 248, 0.18); color: #818cf8; border: 1px solid rgba(129, 140, 248, 0.38); box-shadow: 0 0 14px rgba(129, 140, 248, 0.15); }
+.app-mobile-role-badge--admin {
+  background: rgba(129, 140, 248, 0.16);
+  color: #818cf8;
+  border-color: rgba(129, 140, 248, 0.38);
+  box-shadow: 0 0 10px rgba(129, 140, 248, 0.2);
+}
+.app-mobile-role-badge--admin:hover {
+  background: rgba(129, 140, 248, 0.26);
+  color: #c7d2fe;
+}
 
 .app-logout {
   width: 100%;

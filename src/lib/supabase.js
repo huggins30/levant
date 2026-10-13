@@ -14,3 +14,40 @@ if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
 }
 
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+/**
+ * Registra un usuario (comercio o repartidor) desde el panel admin
+ * usando un cliente aislado sin persistencia de sesión para no desloguear al admin actual
+ * y evitando 'User not allowed' que ocurre al invocar supabase.auth.admin con la clave anon.
+ */
+export async function registrarUsuarioAdmin({ email, password, nombreCompleto, rol }) {
+  const tempAuthClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+      detectSessionInUrl: false,
+    },
+  });
+
+  const { data, error } = await tempAuthClient.auth.signUp({
+    email: email.trim(),
+    password: password.trim(),
+    options: {
+      data: {
+        nombre_completo: nombreCompleto.trim(),
+        rol: rol,
+      },
+    },
+  });
+
+  if (error) throw error;
+  if (data?.user?.identities && data.user.identities.length === 0) {
+    throw new Error('Ya existe una cuenta registrada con este correo electrónico.');
+  }
+  if (!data?.user?.id) {
+    throw new Error('No se pudo crear el usuario. Por favor verifica los datos.');
+  }
+
+  return data.user;
+}
+

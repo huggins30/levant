@@ -22,6 +22,69 @@ const CATEGORIAS_PRODUCTO = [
 
 const RIF_REGEX = /^(J|V|G|E)-[0-9]{8}-[0-9]$/;
 
+// ─── Helpers de Peso y Clasificación de Vehículo ────────────────────────────
+export function calcularPesoTotalPedido(ped) {
+  if (!ped?.pedido_items || ped.pedido_items.length === 0) return 1.0;
+  const total = ped.pedido_items.reduce((sum, item) => {
+    const qty = Number(item.cantidad) || 1;
+    const pesoUnit = Number(item.productos?.peso_kg) || 1.0;
+    return sum + (qty * pesoUnit);
+  }, 0);
+  return Number(total.toFixed(2));
+}
+
+export function getTipoVehiculoRequerido(pesoKg) {
+  if (pesoKg <= 20) {
+    return {
+      nombre: 'Motocicleta',
+      maxKg: 20,
+      icon: '🛵',
+      color: '#10b981',
+      badgeClass: 'cp-veh-moto',
+    };
+  }
+  if (pesoKg <= 150) {
+    return {
+      nombre: 'Automóvil / Sedán',
+      maxKg: 150,
+      icon: '🚗',
+      color: '#3b82f6',
+      badgeClass: 'cp-veh-auto',
+    };
+  }
+  if (pesoKg <= 800) {
+    return {
+      nombre: 'Van / Furgoneta',
+      maxKg: 800,
+      icon: '🚐',
+      color: '#f59e0b',
+      badgeClass: 'cp-veh-van',
+    };
+  }
+  return {
+    nombre: 'Camioneta de Carga 3.5T',
+    maxKg: 1500,
+    icon: '🚚',
+    color: '#ef4444',
+    badgeClass: 'cp-veh-carga',
+  };
+}
+
+export function getCapacidadRepartidor(rep) {
+  if (rep?.tipos_vehiculo?.capacidad_peso_kg) {
+    return Number(rep.tipos_vehiculo.capacidad_peso_kg);
+  }
+  const v = (rep?.vehiculo || '').toLowerCase();
+  if (v === 'carro' || v.includes('auto') || v.includes('sedan')) return 150;
+  if (v.includes('van') || v.includes('furgoneta')) return 800;
+  if (v.includes('camion')) return 1500;
+  return 20; // Default motocicleta
+}
+
+export function getVehiculoNombreRepartidor(rep) {
+  return rep?.tipos_vehiculo?.nombre || (rep?.vehiculo ? rep.vehiculo.toUpperCase() : 'MOTO');
+}
+
 // ─── Sub-componente: Modal de Producto ────────────────────────────────────────
 function ProductoModal({ producto, comercioId, onClose, onSaved }) {
   const isEdit = Boolean(producto?.id);
@@ -31,6 +94,7 @@ function ProductoModal({ producto, comercioId, onClose, onSaved }) {
     categoria:   producto?.categoria   ?? 'comida',
     precio_usd:  producto?.precio_usd  ?? '',
     stock:       producto?.stock       ?? 0,
+    peso_kg:     producto?.peso_kg     ?? '1.0',
     activo:      producto?.activo      ?? true,
   });
   const [errors, setErrors]   = useState({});
@@ -58,6 +122,8 @@ function ProductoModal({ producto, comercioId, onClose, onSaved }) {
       e.precio_usd = 'Precio USD inválido.';
     if (isNaN(parseInt(form.stock)) || parseInt(form.stock) < 0)
       e.stock = 'Stock inválido.';
+    if (form.peso_kg !== undefined && form.peso_kg !== '' && (isNaN(parseFloat(form.peso_kg)) || parseFloat(form.peso_kg) <= 0))
+      e.peso_kg = 'Peso inválido (mín 0.01 kg).';
     return e;
   };
 
@@ -90,13 +156,24 @@ function ProductoModal({ producto, comercioId, onClose, onSaved }) {
         categoria:   form.categoria,
         precio_usd:  parseFloat(form.precio_usd),
         stock:       parseInt(form.stock),
+        peso_kg:     parseFloat(form.peso_kg || 1.0),
         activo:      form.activo,
         imagen_url,
       };
 
-      const { error } = isEdit
+      let { error } = isEdit
         ? await supabase.from('productos').update(payload).eq('id', producto.id)
         : await supabase.from('productos').insert(payload);
+
+      // Si la columna peso_kg aún no existe en Supabase, reintentar sin ese campo
+      if (error && error.message?.includes('peso_kg')) {
+        const fallbackPayload = { ...payload };
+        delete fallbackPayload.peso_kg;
+        const resFallback = isEdit
+          ? await supabase.from('productos').update(fallbackPayload).eq('id', producto.id)
+          : await supabase.from('productos').insert(fallbackPayload);
+        error = resFallback.error;
+      }
 
       if (error) throw error;
       onSaved?.();
@@ -157,8 +234,8 @@ function ProductoModal({ producto, comercioId, onClose, onSaved }) {
               value={form.descripcion} onChange={handleChange} />
           </div>
 
-          {/* Precio y Stock */}
-          <div className="cp-row2">
+          {/* Precio, Stock y Peso */}
+          <div className="cp-row3">
             <div className={`cp-field ${errors.precio_usd ? 'cp-field--err' : ''}`}>
               <label htmlFor="cp-precio">Precio (USD)</label>
               <div className="cp-prefix">
@@ -174,6 +251,18 @@ function ProductoModal({ producto, comercioId, onClose, onSaved }) {
               <input id="cp-stock" name="stock" type="number" min="0"
                 placeholder="0" value={form.stock} onChange={handleChange} />
               {errors.stock && <span className="cp-error">{errors.stock}</span>}
+            </div>
+
+            <div className={`cp-field ${errors.peso_kg ? 'cp-field--err' : ''}`}>
+              <label htmlFor="cp-peso" title="Peso del producto para asignar el vehículo adecuado">
+                Peso (kg) <span className="cp-opt">⚖️</span>
+              </label>
+              <div className="cp-prefix">
+                <span>kg</span>
+                <input id="cp-peso" name="peso_kg" type="number" min="0.01" step="0.1"
+                  placeholder="1.0" value={form.peso_kg} onChange={handleChange} />
+              </div>
+              {errors.peso_kg && <span className="cp-error">{errors.peso_kg}</span>}
             </div>
           </div>
 
@@ -314,25 +403,52 @@ export default function ComercioPanel({ session }) {
   const fetchGPedidos = useCallback(async () => {
     if (!perfil?.id) return;
     setLoadingGPedidos(true);
-    const { data, error } = await supabase
+    let { data, error } = await supabase
       .from('pedidos_entregas')
       .select(`
         id, estado, total_usd, direccion_entrega, created_at, updated_at, repartidor_id,
         confirmacion_cliente, valoracion,
         profiles!pedidos_entregas_cliente_id_fkey(nombre_completo, telefono),
         repartidores_datos (
-          id, vehiculo, placa, disponible,
+          id, vehiculo, placa, disponible, tipos_vehiculo_id,
+          tipos_vehiculo ( id, nombre, capacidad_peso_kg ),
           profiles ( id, nombre_completo, telefono )
         ),
         pedido_items (
           id, cantidad, precio_usd, subtotal_usd,
-          productos ( nombre, imagen_url )
+          productos ( id, nombre, imagen_url, peso_kg )
         ),
         reportes_pago ( metodo, estado, referencia, monto_bs, monto_usd )
       `)
       .eq('comercio_id', perfil.id)
       .order('created_at', { ascending: false })
       .limit(100);
+
+    if (error && error.message?.includes('peso_kg')) {
+      const resFallback = await supabase
+        .from('pedidos_entregas')
+        .select(`
+          id, estado, total_usd, direccion_entrega, created_at, updated_at, repartidor_id,
+          confirmacion_cliente, valoracion,
+          profiles!pedidos_entregas_cliente_id_fkey(nombre_completo, telefono),
+          repartidores_datos (
+            id, vehiculo, placa, disponible, tipos_vehiculo_id,
+            tipos_vehiculo ( id, nombre, capacidad_peso_kg ),
+            profiles ( id, nombre_completo, telefono )
+          ),
+          pedido_items (
+            id, cantidad, precio_usd, subtotal_usd,
+            productos ( id, nombre, imagen_url )
+          ),
+          reportes_pago ( metodo, estado, referencia, monto_bs, monto_usd )
+        `)
+        .eq('comercio_id', perfil.id)
+        .order('created_at', { ascending: false })
+        .limit(100);
+      data = resFallback.data;
+      error = resFallback.error;
+    }
+
     if (error) console.error('Error cargando pedidos:', error);
     setGPedidos(data ?? []);
     setLoadingGPedidos(false);
@@ -345,7 +461,8 @@ export default function ComercioPanel({ session }) {
       const { data, error } = await supabase
         .from('repartidores_datos')
         .select(`
-          id, vehiculo, placa, disponible,
+          id, vehiculo, placa, disponible, tipos_vehiculo_id,
+          tipos_vehiculo ( id, nombre, capacidad_peso_kg, capacidad_volumen_m3 ),
           profiles ( id, nombre_completo, telefono )
         `);
 
@@ -395,6 +512,8 @@ export default function ComercioPanel({ session }) {
         vehiculo: repObj.vehiculo,
         placa: repObj.placa,
         disponible: repObj.disponible,
+        tipos_vehiculo_id: repObj.tipos_vehiculo_id,
+        tipos_vehiculo: repObj.tipos_vehiculo,
         profiles: repObj.profiles
       } : null;
 
@@ -419,6 +538,75 @@ export default function ComercioPanel({ session }) {
       alert('Error inesperado al asignar repartidor.');
     } finally {
       setAssigningRepartidor(null);
+    }
+  };
+
+  // ── Selección manual de repartidor con advertencia de sobrepeso ──
+  const handleSelectRepartidor = async (pedidoId, repartidorId, ped) => {
+    if (!repartidorId) {
+      await assignRepartidor(pedidoId, '');
+      return;
+    }
+    const pesoTotal = calcularPesoTotalPedido(ped);
+    const rep = repartidoresActivos.find(r => r.id === repartidorId);
+    if (rep) {
+      const cap = getCapacidadRepartidor(rep);
+      if (cap < pesoTotal) {
+        const confirmar = window.confirm(
+          `⚠️ ADVERTENCIA DE CAPACIDAD DE VEHÍCULO:\n\n` +
+          `Este pedido pesa ${pesoTotal} kg, pero el repartidor "${rep.profiles?.nombre_completo || 'Repartidor'}" ` +
+          `cuenta con ${getVehiculoNombreRepartidor(rep)} (capacidad máxima: ${cap} kg).\n\n` +
+          `¿Deseas asignarlo de todas formas?`
+        );
+        if (!confirmar) return;
+      }
+    }
+    await assignRepartidor(pedidoId, repartidorId);
+  };
+
+  // ── Auto-asignación inteligente de repartidor según el peso ──────
+  const autoAssignRepartidorPorPeso = async (ped) => {
+    const pesoTotal = calcularPesoTotalPedido(ped);
+    const reqVeh = getTipoVehiculoRequerido(pesoTotal);
+
+    // Filtrar candidatos cuya capacidad cubra el peso total del pedido
+    const candidatosAptos = repartidoresActivos.filter(r => {
+      const cap = getCapacidadRepartidor(r);
+      return cap >= pesoTotal;
+    });
+
+    if (candidatosAptos.length === 0) {
+      alert(
+        `⚠️ Capacidad insuficiente en la flota:\n\n` +
+        `Este pedido pesa ${pesoTotal} kg y requiere un vehículo tipo "${reqVeh.nombre}" (mín. ${pesoTotal} kg).\n` +
+        `No hay repartidores disponibles con capacidad suficiente registrada.`
+      );
+      return;
+    }
+
+    // Priorizar repartidores disponibles (activos)
+    const disponibles = candidatosAptos.filter(r => r.disponible);
+    const pool = disponibles.length > 0 ? disponibles : candidatosAptos;
+
+    // Ordenar de menor a mayor capacidad para asignar el vehículo más eficiente
+    pool.sort((a, b) => getCapacidadRepartidor(a) - getCapacidadRepartidor(b));
+
+    const seleccionado = pool[0];
+    const capSeleccionado = getCapacidadRepartidor(seleccionado);
+    const vehiculoNombre = getVehiculoNombreRepartidor(seleccionado);
+
+    const confirmar = window.confirm(
+      `📦 Pedido: #${ped.id.slice(0, 8)} (${pesoTotal} kg)\n` +
+      `Vehículo requerido: ${reqVeh.icon} ${reqVeh.nombre}\n\n` +
+      `🛵 Repartidor asignado automáticamente:\n` +
+      `• Nombre: ${seleccionado.profiles?.nombre_completo || 'Repartidor'}\n` +
+      `• Vehículo: ${vehiculoNombre} (Capacidad: ${capSeleccionado} kg)\n` +
+      `• Estado: ${seleccionado.disponible ? '🟢 Activo / Disponible' : '⚪ En servicio'}\n\n` +
+      `¿Confirmar asignación?`
+    );
+
+    if (confirmar) {
+      await assignRepartidor(ped.id, seleccionado.id);
     }
   };
 
@@ -655,6 +843,7 @@ export default function ComercioPanel({ session }) {
                     <thead>
                       <tr>
                         <th>Producto</th>
+                        <th className="cp-th-c">Peso</th>
                         <th className="cp-th-r">Precio USD</th>
                         <th className="cp-th-r">Stock</th>
                         <th className="cp-th-c">Estado</th>
@@ -670,6 +859,11 @@ export default function ComercioPanel({ session }) {
                               <p className="cp-prod-name">{prod.nombre}</p>
                               {prod.descripcion && <p className="cp-prod-desc">{prod.descripcion}</p>}
                             </div>
+                          </td>
+                          <td className="cp-td-c">
+                            <span className="cp-badge-peso" title="Peso unitario del producto">
+                              ⚖️ {prod.peso_kg ?? 1.0} kg
+                            </span>
                           </td>
                           <td className="cp-td-r cp-price">${prod.precio_usd?.toFixed(2)}</td>
                           <td className="cp-td-r">
@@ -751,6 +945,9 @@ export default function ComercioPanel({ session }) {
                 {pedidosFiltrados.map(ped => {
                   const tienePago = ped.reportes_pago && ped.reportes_pago.length > 0;
                   const estadoInfo = getEstadoBadge(ped);
+                  const pesoTotal = calcularPesoTotalPedido(ped);
+                  const vehReq = getTipoVehiculoRequerido(pesoTotal);
+
                   return (
                     <div key={ped.id} className="cp-pedido-card" onClick={() => setPedidoDetalle(ped)}>
                       <div className="cp-pedido-card-top">
@@ -779,9 +976,18 @@ export default function ComercioPanel({ session }) {
                           <span>📦</span>
                           <span>{ped.pedido_items?.length ?? 0} producto{(ped.pedido_items?.length ?? 0) !== 1 ? 's' : ''}</span>
                         </div>
+                        <div className="cp-pedido-card-row cp-peso-badge-row">
+                          <span>⚖️</span>
+                          <span className="cp-pedido-peso-badge" title="Peso total del pedido">
+                            {pesoTotal} kg
+                          </span>
+                          <span className={`cp-veh-badge ${vehReq.badgeClass}`} title={`Requiere vehículo tipo ${vehReq.nombre}`}>
+                            {vehReq.icon} {vehReq.nombre}
+                          </span>
+                        </div>
                       </div>
 
-                      {/* Repartidor Slot: Exactamente en el espacio indicado en la imagen */}
+                      {/* Repartidor Slot con lógica de peso */}
                       <div className="cp-card-rep-box" onClick={e => e.stopPropagation()}>
                         <div className="cp-card-rep-label">
                           <span>🛵 Repartidor</span>
@@ -789,20 +995,62 @@ export default function ComercioPanel({ session }) {
                             <span className="cp-rep-dot-active" title="Asignado">●</span>
                           )}
                         </div>
+
+                        {ped.estado !== 'entregado' && ped.estado !== 'cancelado' && (
+                          <button
+                            type="button"
+                            className="cp-btn-auto-peso"
+                            title={`Asignar repartidor automáticamente para ${pesoTotal} kg`}
+                            disabled={assigningRepartidor === ped.id}
+                            onClick={() => autoAssignRepartidorPorPeso(ped)}
+                          >
+                            ⚡ Auto por Peso
+                          </button>
+                        )}
+
                         <select
                           className={`cp-rep-select ${ped.repartidor_id ? 'cp-rep-select--assigned' : ''}`}
                           value={ped.repartidor_id || ''}
                           disabled={ped.estado === 'entregado' || ped.estado === 'cancelado' || assigningRepartidor === ped.id}
-                          onChange={(e) => assignRepartidor(ped.id, e.target.value)}
+                          onChange={(e) => handleSelectRepartidor(ped.id, e.target.value, ped)}
                         >
                           <option value="">
-                            {loadingRepartidores ? 'Cargando...' : 'Seleccionar repartidor'}
+                            {loadingRepartidores ? 'Cargando...' : '-- Repartidor --'}
                           </option>
-                          {listaRepartidores.map(r => (
-                            <option key={r.id} value={r.id}>
-                              {r.disponible ? '🟢' : '⚪'} {r.profiles?.nombre_completo || 'Repartidor'} ({r.vehiculo || 'Moto'})
-                            </option>
-                          ))}
+                          {(() => {
+                            const aptos = listaRepartidores.filter(r => getCapacidadRepartidor(r) >= pesoTotal);
+                            const noAptos = listaRepartidores.filter(r => getCapacidadRepartidor(r) < pesoTotal);
+                            return (
+                              <>
+                                {aptos.length > 0 && (
+                                  <optgroup label="✅ Aptos para este peso">
+                                    {aptos.map(r => {
+                                      const cap = getCapacidadRepartidor(r);
+                                      const veh = getVehiculoNombreRepartidor(r);
+                                      return (
+                                        <option key={r.id} value={r.id}>
+                                          {r.disponible ? '🟢' : '⚪'} {r.profiles?.nombre_completo || 'Repartidor'} ({veh} · {cap}kg)
+                                        </option>
+                                      );
+                                    })}
+                                  </optgroup>
+                                )}
+                                {noAptos.length > 0 && (
+                                  <optgroup label="⚠️ Capacidad Insuficiente">
+                                    {noAptos.map(r => {
+                                      const cap = getCapacidadRepartidor(r);
+                                      const veh = getVehiculoNombreRepartidor(r);
+                                      return (
+                                        <option key={r.id} value={r.id}>
+                                          ⚠️ {r.profiles?.nombre_completo || 'Repartidor'} ({veh} · máx {cap}kg &lt; {pesoTotal}kg)
+                                        </option>
+                                      );
+                                    })}
+                                  </optgroup>
+                                )}
+                              </>
+                            );
+                          })()}
                           {ped.repartidores_datos && !listaRepartidores.some(r => r.id === ped.repartidor_id) && (
                             <option value={ped.repartidor_id}>
                               🛵 {ped.repartidores_datos.profiles?.nombre_completo || 'Asignado'}
@@ -866,6 +1114,39 @@ export default function ComercioPanel({ session }) {
                 </div>
               </div>
 
+              {/* Desglose de Peso y Vehículo Requerido en Modal */}
+              {(() => {
+                const pesoModal = calcularPesoTotalPedido(pedidoDetalle);
+                const reqVehModal = getTipoVehiculoRequerido(pesoModal);
+                return (
+                  <div className="cp-modal-peso-box">
+                    <div className="cp-modal-peso-header">
+                      <div className="cp-modal-peso-title-group">
+                        <span style={{ fontSize: '1.25rem' }}>⚖️</span>
+                        <div>
+                          <p className="cp-modal-peso-title">
+                            Peso total del pedido: <strong>{pesoModal} kg</strong>
+                          </p>
+                          <p className="cp-modal-peso-desc">
+                            Vehículo recomendado: <span className={`cp-veh-badge ${reqVehModal.badgeClass}`}>{reqVehModal.icon} {reqVehModal.nombre} (soporta hasta {reqVehModal.maxKg} kg)</span>
+                          </p>
+                        </div>
+                      </div>
+                      {pedidoDetalle.estado !== 'entregado' && pedidoDetalle.estado !== 'cancelado' && (
+                        <button
+                          type="button"
+                          className="cp-btn-auto-peso cp-btn-auto-peso--modal"
+                          onClick={() => autoAssignRepartidorPorPeso(pedidoDetalle)}
+                          disabled={assigningRepartidor === pedidoDetalle.id}
+                        >
+                          ⚡ Auto-asignar según peso
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
+
               {/* Sección Repartidor en el Modal */}
               <div className="cp-modal-rep-section">
                 <div className="cp-modal-rep-header">
@@ -886,15 +1167,45 @@ export default function ComercioPanel({ session }) {
                     className="cp-rep-select cp-rep-select--modal"
                     value={pedidoDetalle.repartidor_id || ''}
                     disabled={pedidoDetalle.estado === 'entregado' || pedidoDetalle.estado === 'cancelado' || assigningRepartidor === pedidoDetalle.id}
-                    onChange={(e) => assignRepartidor(pedidoDetalle.id, e.target.value)}
+                    onChange={(e) => handleSelectRepartidor(pedidoDetalle.id, e.target.value, pedidoDetalle)}
                   >
                     <option value="">-- Sin repartidor asignado (Seleccionar activo) --</option>
-                    {listaRepartidores.map(r => (
-                      <option key={r.id} value={r.id}>
-                        {r.disponible ? '🟢 Activo: ' : '⚪ Inactivo: '}
-                        {r.profiles?.nombre_completo || 'Repartidor'} ({r.vehiculo || 'Moto'}{r.placa ? ` · ${r.placa}` : ''})
-                      </option>
-                    ))}
+                    {(() => {
+                      const pesoM = calcularPesoTotalPedido(pedidoDetalle);
+                      const aptosM = listaRepartidores.filter(r => getCapacidadRepartidor(r) >= pesoM);
+                      const noAptosM = listaRepartidores.filter(r => getCapacidadRepartidor(r) < pesoM);
+                      return (
+                        <>
+                          {aptosM.length > 0 && (
+                            <optgroup label="✅ Repartidores Aptos para este peso">
+                              {aptosM.map(r => {
+                                const cap = getCapacidadRepartidor(r);
+                                const veh = getVehiculoNombreRepartidor(r);
+                                return (
+                                  <option key={r.id} value={r.id}>
+                                    {r.disponible ? '🟢 Activo: ' : '⚪ Inactivo: '}
+                                    {r.profiles?.nombre_completo || 'Repartidor'} ({veh} · {cap}kg)
+                                  </option>
+                                );
+                              })}
+                            </optgroup>
+                          )}
+                          {noAptosM.length > 0 && (
+                            <optgroup label="⚠️ Capacidad Insuficiente">
+                              {noAptosM.map(r => {
+                                const cap = getCapacidadRepartidor(r);
+                                const veh = getVehiculoNombreRepartidor(r);
+                                return (
+                                  <option key={r.id} value={r.id}>
+                                    ⚠️ {r.profiles?.nombre_completo || 'Repartidor'} ({veh} · máx {cap}kg &lt; {pesoM}kg)
+                                  </option>
+                                );
+                              })}
+                            </optgroup>
+                          )}
+                        </>
+                      );
+                    })()}
                     {pedidoDetalle.repartidores_datos && !listaRepartidores.some(r => r.id === pedidoDetalle.repartidor_id) && (
                       <option value={pedidoDetalle.repartidor_id}>
                         🛵 Asignado: {pedidoDetalle.repartidores_datos.profiles?.nombre_completo || 'Repartidor'}
@@ -1012,7 +1323,10 @@ export default function ComercioPanel({ session }) {
                       }
                       <div className="cp-pedido-item-info">
                         <p className="cp-pedido-item-name">{item.productos?.nombre ?? 'Producto'}</p>
-                        <p className="cp-pedido-item-meta">Cant: {item.cantidad} × ${item.precio_usd?.toFixed(2)}</p>
+                        <p className="cp-pedido-item-meta">
+                          Cant: {item.cantidad} × ${item.precio_usd?.toFixed(2)}
+                          <span className="cp-item-peso-tag"> · ⚖️ {((item.productos?.peso_kg ?? 1.0) * item.cantidad).toFixed(1)} kg ({item.productos?.peso_kg ?? 1.0} kg c/u)</span>
+                        </p>
                       </div>
                       <span className="cp-pedido-item-sub">${item.subtotal_usd?.toFixed(2)}</span>
                     </div>

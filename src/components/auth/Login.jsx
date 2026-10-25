@@ -52,8 +52,10 @@ export default function Login() {
       <div className="auth-card">
         <div className="auth-header">
           <span className="auth-logo">
-            <img src="/logo.png" alt="Levant" className="auth-logo-img" />
-            Levant
+            <div className="auth-logo-circle">
+              <img src="/logo.png" alt="Levant" className="auth-logo-img" />
+            </div>
+            <span className="auth-logo-text">Levant</span>
           </span>
           <h2>{isLogin ? 'Iniciar Sesión' : 'Crear Cuenta'}</h2>
           <p>{isLogin ? 'Ingresa tus credenciales para continuar' : 'Únete a la plataforma de delivery'}</p>

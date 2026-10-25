@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../../lib/supabase';
+import { autoAsignarPedido, buscarMejorRepartidorDisponible } from '../../lib/asignacionPedidos';
 import './TiendasCliente.css';
 
 const CAT_ICONS = {
@@ -13,6 +14,20 @@ const CAT_ICONS = {
   licoreria:    '🍷',
   otro:         '🏪',
 };
+
+const BANCOS_VE = [
+  'Banco de Venezuela', 'Banesco', 'Mercantil', 'BBVA Provincial', 'Bicentenario',
+  'BNC', 'Banco Exterior', 'Sofitasa', 'Fondo Común', 'Banplus', '100% Banco',
+  'Bancamiga', 'Bancaribe', 'Plaza Bank', 'Del Sur', 'BOD', 'Bancrecer', 'Banfanb',
+];
+
+const METODOS_PAGO = [
+  { value: 'pago_movil',    label: '📱 Pago Móvil' },
+  { value: 'zelle',         label: '💵 Zelle' },
+  { value: 'transferencia', label: '🏦 Transferencia' },
+  { value: 'efectivo_usd',  label: '💵 Efectivo USD' },
+  { value: 'efectivo_bs',   label: '💴 Efectivo Bs' },
+];
 
 export default function TiendasCliente({ session, onGoToPago }) {
   const [comercios, setComercios]       = useState([]);
@@ -31,6 +46,47 @@ export default function TiendasCliente({ session, onGoToPago }) {
   const [ordering, setOrdering]         = useState(false);
   const [orderResult, setOrderResult]   = useState(null); // 'ok' | error string
   const [createdPedidoId, setCreatedPedidoId] = useState(null);
+
+  // ── Datos de Pago (OBLIGATORIO para generar pedido) ──
+  const [pagoMetodo, setPagoMetodo]           = useState('pago_movil');
+  const [pagoBancoOrigen, setPagoBancoOrigen]   = useState('');
+  const [pagoBancoDestino, setPagoBancoDestino] = useState('');
+  const [pagoReferencia, setPagoReferencia]     = useState('');
+  const [pagoMontoBs, setPagoMontoBs]           = useState('');
+  const [pagoNotas, setPagoNotas]               = useState('');
+  const [pagoFile, setPagoFile]                 = useState(null);
+  const [pagoPreview, setPagoPreview]           = useState(null);
+
+  // Preview de comprobante de pago
+  useEffect(() => {
+    if (!pagoFile) { setPagoPreview(null); return; }
+    const url = URL.createObjectURL(pagoFile);
+    setPagoPreview(url);
+    return () => URL.revokeObjectURL(url);
+  }, [pagoFile]);
+
+  const resetPagoForm = () => {
+    setPagoMetodo('pago_movil');
+    setPagoBancoOrigen('');
+    setPagoBancoDestino('');
+    setPagoReferencia('');
+    setPagoMontoBs('');
+    setPagoNotas('');
+    setPagoFile(null);
+    setPagoPreview(null);
+  };
+
+  const handlePagoFileChange = (e) => {
+    const f = e.target.files?.[0];
+    if (f && f.size > 5 * 1024 * 1024) {
+      setOrderResult('El archivo de imagen no debe superar los 5 MB.');
+      return;
+    }
+    setPagoFile(f || null);
+    if (orderResult && orderResult.includes('comprobante')) {
+      setOrderResult(null);
+    }
+  };
 
   // ── Cargar comercios ──
   const fetchComercios = useCallback(async () => {
@@ -52,6 +108,7 @@ export default function TiendasCliente({ session, onGoToPago }) {
     setCart({});
     setShowCheckout(false);
     setOrderResult(null);
+    resetPagoForm();
     setLoadingProds(true);
     const { data } = await supabase
       .from('productos')
@@ -69,6 +126,7 @@ export default function TiendasCliente({ session, onGoToPago }) {
     setCart({});
     setShowCheckout(false);
     setOrderResult(null);
+    resetPagoForm();
   };
 
   // ── Filtros ──
@@ -131,24 +189,60 @@ export default function TiendasCliente({ session, onGoToPago }) {
       });
   }, [showCheckout, session]);
 
-  // ── Ejecutar compra ──
+  // ── Ejecutar compra con PAGO OBLIGATORIO Y CARGA DE COMPROBANTE ──
   const handleOrder = async () => {
     if (!direccion.trim()) {
-      setOrderResult('Debes indicar una dirección de entrega.');
+      setOrderResult('⚠️ Debes indicar una dirección de entrega.');
       return;
     }
     if (cartItems.length === 0) return;
+
+    // VALIDACIÓN ESTRICTA DEL PAGO
+    if (!pagoReferencia.trim()) {
+      setOrderResult('⚠️ Debes ingresar el número de referencia del pago.');
+      return;
+    }
+
+    const needsBanks = pagoMetodo === 'pago_movil' || pagoMetodo === 'transferencia';
+    if (needsBanks && (!pagoBancoOrigen || !pagoBancoDestino)) {
+      setOrderResult('⚠️ Debes seleccionar el banco de origen y el banco de destino.');
+      return;
+    }
+
+    // Comprobante OBLIGATORIO: sin imagen de pago NO se puede generar el pedido
+    if (!pagoFile) {
+      setOrderResult('📸 OBLIGATORIO: Debes cargar la imagen del comprobante de pago. Sin comprobante el sistema no podrá generar el pedido ni asignar repartidor.');
+      return;
+    }
 
     setOrdering(true);
     setOrderResult(null);
 
     try {
-      // 1. Crear pedido en pedidos_entregas
+      // 1. Subir imagen del comprobante al bucket 'pagos' de Supabase
+      const ext = pagoFile.name.split('.').pop();
+      const path = `comprobantes/${session.user.id}/${Date.now()}.${ext}`;
+      const { error: upErr } = await supabase.storage
+        .from('pagos')
+        .upload(path, pagoFile, { upsert: true });
+
+      if (upErr) throw new Error('Error al subir el comprobante de pago: ' + upErr.message);
+
+      const { data: urlData } = supabase.storage.from('pagos').getPublicUrl(path);
+      const comprobante_url = urlData?.publicUrl || null;
+
+      if (!comprobante_url) {
+        throw new Error('No se pudo generar la URL de la imagen del pago.');
+      }
+
+      // 2. Crear pedido en pedidos_entregas (inicialmente sin repartidor)
       const payload = {
         cliente_id:       session.user.id,
         comercio_id:      selected.id,
         total_usd:        parseFloat(cartTotal.toFixed(2)),
-        direccion_entrega: direccion.trim(),
+        direccion_entrega: direccion.trim() + (referencia.trim() ? ` (Ref: ${referencia.trim()})` : ''),
+        repartidor_id:    null,
+        estado:           'pendiente',
       };
 
       const { data: pedido, error: pedErr } = await supabase
@@ -159,7 +253,7 @@ export default function TiendasCliente({ session, onGoToPago }) {
 
       if (pedErr) throw pedErr;
 
-      // 2. Insertar items del pedido
+      // 3. Insertar items del pedido
       const items = cartItems.map(p => ({
         pedido_id:   pedido.id,
         producto_id: p.id,
@@ -173,11 +267,45 @@ export default function TiendasCliente({ session, onGoToPago }) {
 
       if (itemsErr) throw itemsErr;
 
+      // 4. Registrar el pago en reportes_pago con la imagen cargada
+      const payloadPago = {
+        pedido_id:       pedido.id,
+        cliente_id:      session.user.id,
+        metodo:          pagoMetodo,
+        banco_origen:    pagoBancoOrigen || null,
+        banco_destino:   pagoBancoDestino || null,
+        referencia:      pagoReferencia.trim(),
+        monto_usd:       parseFloat(cartTotal.toFixed(2)),
+        monto_bs:        pagoMontoBs ? parseFloat(pagoMontoBs) : null,
+        notas:           pagoNotas.trim() || null,
+        comprobante_url: comprobante_url,
+        estado:          'pendiente',
+      };
+
+      const { error: pagoErr } = await supabase
+        .from('reportes_pago')
+        .insert(payloadPago);
+
+      if (pagoErr) {
+        console.warn('[TiendasCliente] Advertencia registrando reporte_pago:', pagoErr);
+      }
+
+      // 5. Con comprobante verificado y registrado, auto-asignar repartidor idóneo
+      let pesoTotal = cartItems.reduce((sum, p) => {
+        const qty = Number(cart[p.id]) || 1;
+        const pUnit = Number(p.peso_kg) || 1.0;
+        return sum + (qty * pUnit);
+      }, 0);
+      pesoTotal = Number(pesoTotal.toFixed(2)) || 1.0;
+
+      await autoAsignarPedido(pedido.id, pesoTotal);
+
       setCreatedPedidoId(pedido.id);
       setOrderResult('ok');
       setCart({});
+      resetPagoForm();
     } catch (err) {
-      console.error('Error al crear pedido:', err);
+      console.error('Error al generar pedido con pago:', err);
       setOrderResult(err.message || 'Error al procesar la compra.');
     } finally {
       setOrdering(false);
@@ -382,7 +510,7 @@ export default function TiendasCliente({ session, onGoToPago }) {
               {/* ── Checkout / Confirmar compra ── */}
               {showCheckout && (
                 <div className="tc-checkout">
-                  <h3 className="tc-checkout-title">🛒 Confirmar pedido</h3>
+                  <h3 className="tc-checkout-title">🛒 Confirmar pedido y registrar pago</h3>
 
                   {/* Resumen de items */}
                   <div className="tc-checkout-items">
@@ -394,7 +522,7 @@ export default function TiendasCliente({ session, onGoToPago }) {
                       </div>
                     ))}
                     <div className="tc-checkout-total-row">
-                      <span>Total</span>
+                      <span>Total a pagar</span>
                       <span className="tc-checkout-total">${cartTotal.toFixed(2)}</span>
                     </div>
                   </div>
@@ -422,10 +550,156 @@ export default function TiendasCliente({ session, onGoToPago }) {
                     />
                   </div>
 
+                  {/* ── SECCIÓN DE PAGO Y COMPROBANTE OBLIGATORIO ── */}
+                  <div className="tc-payment-box">
+                    <div className="tc-payment-box-header">
+                      <span className="tc-payment-badge-req">OBLIGATORIO</span>
+                      <h4 className="tc-payment-box-title">💳 Registro del Pago & Comprobante</h4>
+                    </div>
+                    <p className="tc-payment-box-sub">
+                      El sistema exige cargar la imagen del comprobante de pago y registrar los datos antes de poder generar el pedido y asignar un repartidor.
+                    </p>
+
+                    {/* Método de pago */}
+                    <div className="tc-checkout-field">
+                      <label htmlFor="tc-pago-metodo">Método de pago *</label>
+                      <select
+                        id="tc-pago-metodo"
+                        className="tc-checkout-select"
+                        value={pagoMetodo}
+                        onChange={e => setPagoMetodo(e.target.value)}
+                      >
+                        {METODOS_PAGO.map(m => (
+                          <option key={m.value} value={m.value}>{m.label}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* Bancos si aplica */}
+                    {(pagoMetodo === 'pago_movil' || pagoMetodo === 'transferencia') && (
+                      <div className="tc-payment-grid-2">
+                        <div className="tc-checkout-field">
+                          <label htmlFor="tc-banco-origen">Banco origen *</label>
+                          <select
+                            id="tc-banco-origen"
+                            className="tc-checkout-select"
+                            value={pagoBancoOrigen}
+                            onChange={e => setPagoBancoOrigen(e.target.value)}
+                          >
+                            <option value="">Seleccionar banco...</option>
+                            {BANCOS_VE.map(b => (
+                              <option key={b} value={b}>{b}</option>
+                            ))}
+                          </select>
+                        </div>
+                        <div className="tc-checkout-field">
+                          <label htmlFor="tc-banco-destino">Banco destino *</label>
+                          <select
+                            id="tc-banco-destino"
+                            className="tc-checkout-select"
+                            value={pagoBancoDestino}
+                            onChange={e => setPagoBancoDestino(e.target.value)}
+                          >
+                            <option value="">Seleccionar banco...</option>
+                            {BANCOS_VE.map(b => (
+                              <option key={b} value={b}>{b}</option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Referencia */}
+                    <div className="tc-checkout-field">
+                      <label htmlFor="tc-pago-ref">
+                        {pagoMetodo === 'zelle' ? 'ID / Memo de Zelle *' : 'Número de referencia *'}
+                      </label>
+                      <input
+                        id="tc-pago-ref"
+                        type="text"
+                        placeholder={pagoMetodo === 'zelle' ? 'Ej: 9b2d8e...' : 'Ej: 12345678'}
+                        value={pagoReferencia}
+                        onChange={e => setPagoReferencia(e.target.value)}
+                      />
+                    </div>
+
+                    {/* Monto pagado */}
+                    <div className="tc-payment-grid-2">
+                      <div className="tc-checkout-field">
+                        <label>Monto a pagar (USD)</label>
+                        <input
+                          type="text"
+                          disabled
+                          value={`$${cartTotal.toFixed(2)}`}
+                          className="tc-input-total-usd"
+                        />
+                      </div>
+                      <div className="tc-checkout-field">
+                        <label htmlFor="tc-pago-bs">Monto pagado en Bs <span className="tc-opt">(opcional)</span></label>
+                        <input
+                          id="tc-pago-bs"
+                          type="number"
+                          step="0.01"
+                          placeholder="Bs. 0.00"
+                          value={pagoMontoBs}
+                          onChange={e => setPagoMontoBs(e.target.value)}
+                        />
+                      </div>
+                    </div>
+
+                    {/* CARGA OBLIGATORIA DEL COMPROBANTE DE PAGO */}
+                    <div className={`tc-checkout-field tc-receipt-upload-field ${!pagoFile ? 'tc-receipt-required-box' : 'tc-receipt-ready-box'}`}>
+                      <div className="tc-receipt-label-row">
+                        <label htmlFor="tc-pago-file">
+                          📸 Captura / Imagen del Comprobante *
+                        </label>
+                        {!pagoFile ? (
+                          <span className="tc-tag-mandatory">OBLIGATORIO</span>
+                        ) : (
+                          <span className="tc-tag-ready">✓ Comprobante listo</span>
+                        )}
+                      </div>
+
+                      <label htmlFor="tc-pago-file" className={`tc-file-dropzone ${pagoPreview ? 'has-preview' : ''}`}>
+                        {pagoPreview ? (
+                          <div className="tc-file-preview-wrap">
+                            <img src={pagoPreview} alt="Comprobante cargado" className="tc-file-preview-img" />
+                            <div className="tc-file-preview-info">
+                              <span className="tc-file-name">{pagoFile.name}</span>
+                              <span className="tc-file-size">{(pagoFile.size / 1024).toFixed(1)} KB</span>
+                              <span className="tc-file-change">Toca para cambiar imagen 🔄</span>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="tc-file-placeholder">
+                            <span className="tc-file-icon">📸</span>
+                            <span className="tc-file-prompt">Adjuntar imagen del comprobante de pago</span>
+                            <span className="tc-file-hint">JPG, PNG o WEBP (Máx. 5 MB) · Requerido para generar pedido</span>
+                          </div>
+                        )}
+                      </label>
+                      <input
+                        id="tc-pago-file"
+                        type="file"
+                        accept="image/*"
+                        className="tc-file-hidden"
+                        onChange={handlePagoFileChange}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Advertencia si no ha cargado comprobante */}
+                  {!pagoFile && (
+                    <div className="tc-alert-warn">
+                      ⚠️ <strong>Comprobante obligatorio:</strong> Debes subir la captura de tu pago para que el sistema pueda habilitar el botón y generar tu pedido.
+                    </div>
+                  )}
+
                   {/* Resultado */}
                   {orderResult === 'ok' && (
                     <div className="tc-alert-ok">
-                      ✅ ¡Pedido creado exitosamente! El comercio recibirá tu orden. Puedes verlo en <strong>📦 Mis Pedidos</strong>.
+                      🎉 <strong>¡Pedido y pago registrados con éxito!</strong><br />
+                      Tu comprobante fue cargado y el sistema ya procedió a la asignación de tu repartidor.
                     </div>
                   )}
                   {orderResult && orderResult !== 'ok' && (
@@ -439,30 +713,25 @@ export default function TiendasCliente({ session, onGoToPago }) {
                         <button className="tc-btn-secondary" onClick={() => setShowCheckout(false)} disabled={ordering}>
                           ← Volver
                         </button>
-                        <button id="tc-confirm-order" className="tc-btn-buy" onClick={handleOrder} disabled={ordering}>
-                          {ordering ? <span className="tc-spinner" /> : '💳 Confirmar compra'}
+                        <button
+                          id="tc-confirm-order"
+                          className={`tc-btn-buy ${!pagoFile ? 'tc-btn-buy--disabled' : ''}`}
+                          onClick={handleOrder}
+                          disabled={ordering || !pagoFile}
+                          title={!pagoFile ? 'Debes adjuntar la imagen del comprobante de pago para continuar' : 'Generar pedido y registrar pago'}
+                        >
+                          {ordering ? (
+                            <><span className="tc-spinner" /> Registrando pedido y pago...</>
+                          ) : (
+                            <>💳 Generar Pedido con Pago</>
+                          )}
                         </button>
                       </>
                     )}
                     {orderResult === 'ok' && (
-                      <div style={{ display: 'flex', gap: '0.75rem', width: '100%' }}>
-                        <button className="tc-btn-secondary" style={{ flex: 1 }} onClick={closeStore}>
-                          Seguir comprando
-                        </button>
-                        {onGoToPago && createdPedidoId && (
-                          <button
-                            className="tc-btn-buy"
-                            style={{ flex: 1 }}
-                            onClick={() => {
-                              const pId = createdPedidoId;
-                              closeStore();
-                              onGoToPago(pId);
-                            }}
-                          >
-                            💳 Reportar Pago
-                          </button>
-                        )}
-                      </div>
+                      <button className="tc-btn-buy" style={{ width: '100%' }} onClick={closeStore}>
+                        Listo, volver a tiendas
+                      </button>
                     )}
                   </div>
                 </div>

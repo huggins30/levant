@@ -1,10 +1,31 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { supabase } from '../../lib/supabase';
 import { 
   BoxIcon, CheckCircleIcon, DollarIcon, StarIcon, MotoIcon, 
   ShoppingBagIcon, CloseIcon, WrenchIcon 
 } from '../common/Icons';
-import { User, Store, LogOut, ChevronDown, X, ChevronRight, Info } from 'lucide-react';
+import { User, Store, LogOut, ChevronDown, X, ChevronRight, Info, ShoppingBag } from 'lucide-react';
+import { 
+  ComercioAlertToasts, 
+  ComercioAlertCenter, 
+  getReadOrderIds, 
+  isOrderRead, 
+  markOrderAsRead, 
+  markAllOrdersAsRead 
+} from '../comercio/ComercioAlertas';
+import {
+  ClienteAlertCenter,
+  getClientReadOrderIds,
+  markClientOrderAsRead,
+  markAllClientOrdersAsRead
+} from '../cliente/ClienteAlertas';
+import {
+  RepartidorAlertCenter,
+  getRepartidorReadOrderIds,
+  markRepartidorOrderAsRead,
+  markAllRepartidorOrdersAsRead
+} from '../repartidor/RepartidorAlertas';
+import { playNewOrderSound, playOrderDeliveredSound, triggerDesktopNotification } from '../comercio/comercioAlertSound';
 import './Dashboard.css';
 
 // ── Colores ──────────────────────────────────────────
@@ -393,75 +414,278 @@ function ProfileMenu({ session, onSignOut, onGoToProfile, registeredRol, current
 // ════════════════════════════════════════════════════
 // DASHBOARD CLIENTE
 // ════════════════════════════════════════════════════
-function DashboardCliente({ session, onSignOut, onGoToProfile, registeredRol, currentRol, onSwitchMode }) {
-  const [pedidos, setPedidos]       = useState([]);
-  const [pagos, setPagos]           = useState([]);
-  const [loading, setLoading]       = useState(true);
-  const [selectedKpi, setSelectedKpi] = useState(null);
+function DashboardCliente({ session, onSignOut, onGoToProfile, registeredRol, currentRol, onSwitchMode, onGoToTracking, onGoToHistorial, onGoToPago, onGoToTiendas }) {
+  const [pedidos, setPedidos]         = useState([]);
+  const [loading, setLoading]         = useState(true);
+  const [filter, setFilter]           = useState('todos');
+  const [expanded, setExpanded]       = useState(null);
+  const [refreshing, setRefreshing]   = useState(false);
+  const [clientNotifications, setClientNotifications] = useState([]);
+  const [showClientNotifCenter, setShowClientNotifCenter] = useState(false);
+  const [activeAlertPill, setActiveAlertPill] = useState(null);
+  const [topClienteScope, setTopClienteScope] = useState('todo'); // 'todo' | 'fecha'
+  const [showAllTopCliente, setShowAllTopCliente] = useState(false);
 
+  // Fecha local de hoy en formato YYYY-MM-DD
+  const localToday = (() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  })();
+  const [selectedDate, setSelectedDate] = useState(localToday);
+
+  const ESTADO_LABEL = {
+    pendiente: 'Pendiente', confirmado: 'Confirmado', en_preparacion: 'En preparación',
+    en_camino: 'En camino', entregado: 'Entregado', cancelado: 'Cancelado',
+  };
+  const ESTADOS_FILTER = ['todos', 'pendiente', 'en_camino', 'entregado', 'cancelado'];
+
+  async function fetchPedidos(showRefreshing = false) {
+    if (showRefreshing) setRefreshing(true);
+    else setLoading(true);
+
+    const { data } = await supabase
+      .from('pedidos_entregas')
+      .select(`
+        id, estado, total_usd, created_at, valoracion, comentario, direccion_entrega,
+        confirmacion_cliente, repartidor_id,
+        comercios_datos ( id, nombre_comercial ),
+        repartidores_datos (
+          id, vehiculo, placa,
+          profiles ( nombre_completo, telefono )
+        ),
+        pedido_items (
+          cantidad, precio_usd, subtotal_usd,
+          productos ( id, nombre, imagen_url )
+        ),
+        reportes_pago ( metodo, estado, referencia, monto_bs, monto_usd )
+      `)
+      .eq('cliente_id', session.user.id)
+      .order('created_at', { ascending: false });
+
+    setPedidos(data ?? []);
+    setLoading(false);
+    setRefreshing(false);
+  }
+
+  useEffect(() => { fetchPedidos(); }, [session]);
+
+  // Escuchar evento de repartidor asignado en tiempo real para refrescar
   useEffect(() => {
-    async function load() {
-      setLoading(true);
-      const [{ data: p }, { data: rp }] = await Promise.all([
-        supabase
-          .from('pedidos_entregas')
-          .select('id, estado, total_usd, created_at, valoracion')
-          .eq('cliente_id', session.user.id)
-          .order('created_at', { ascending: false }),
-        supabase
-          .from('reportes_pago')
-          .select('id, metodo, monto_usd, monto_bs, estado, created_at')
-          .eq('cliente_id', session.user.id)
-          .order('created_at', { ascending: false }),
-      ]);
-      setPedidos(p ?? []);
-      setPagos(rp ?? []);
-      setLoading(false);
+    const handleRepAsig = () => {
+      fetchPedidos(true);
+    };
+    window.addEventListener('levant_repartidor_asignado', handleRepAsig);
+    return () => window.removeEventListener('levant_repartidor_asignado', handleRepAsig);
+  }, []);
+
+  // Sincronizar pedidos con las notificaciones del cliente para la campana de alertas
+  useEffect(() => {
+    if (!pedidos || pedidos.length === 0) {
+      setClientNotifications([]);
+      setActiveAlertPill(null);
+      return;
     }
-    load();
-  }, [session]);
+
+    const readIds = getClientReadOrderIds();
+    const notifs = [];
+
+    pedidos.forEach((p) => {
+      const shortId = p.id ? p.id.slice(0, 8) : '--------';
+      const comercioName = p.comercios_datos?.nombre_comercial || 'Comercio';
+      const repName = p.repartidores_datos?.profiles?.nombre_completo;
+      const vehiculo = p.repartidores_datos?.vehiculo || '';
+      const placa = p.repartidores_datos?.placa ? `(${p.repartidores_datos.placa})` : '';
+
+      // 1. Repartidor Asignado
+      if (repName && p.estado !== 'cancelado') {
+        const isRead = readIds.has(`${p.id}-repartidor`);
+        notifs.push({
+          id: `notif-rep-${p.id}`,
+          orderId: p.id,
+          tipo: 'repartidor',
+          title: `¡Repartidor Asignado! #${shortId}`,
+          desc: `${repName} ${vehiculo ? `(${vehiculo} ${placa}) ` : ''}tiene asignado tu pedido de ${comercioName}.`,
+          total: p.total_usd,
+          timestamp: p.updated_at || p.created_at,
+          unread: !isRead,
+          pedido: p,
+        });
+      }
+
+      // 2. En Camino
+      if (p.estado === 'en_camino') {
+        const isRead = readIds.has(`${p.id}-en_camino`);
+        notifs.push({
+          id: `notif-camino-${p.id}`,
+          orderId: p.id,
+          tipo: 'en_camino',
+          title: `Pedido en Camino #${shortId}`,
+          desc: `Tu pedido de ${comercioName} está en ruta hacia tu dirección de entrega.`,
+          total: p.total_usd,
+          timestamp: p.updated_at || p.created_at,
+          unread: !isRead,
+          pedido: p,
+        });
+      }
+
+      // 3. Entregado
+      if (p.estado === 'entregado') {
+        const isRead = readIds.has(`${p.id}-entregado`);
+        notifs.push({
+          id: `notif-entr-${p.id}`,
+          orderId: p.id,
+          tipo: 'entregado',
+          title: `Pedido Entregado #${shortId}`,
+          desc: `Tu pedido de ${comercioName} ha sido entregado exitosamente.`,
+          total: p.total_usd,
+          timestamp: p.updated_at || p.created_at,
+          unread: !isRead,
+          pedido: p,
+        });
+      }
+    });
+
+    setClientNotifications(notifs);
+
+    // Hero live pill para el cliente si hay alguna no leída de repartidor o en camino:
+    const unreadRep = notifs.filter((n) => n.unread && (n.tipo === 'repartidor' || n.tipo === 'en_camino'));
+    if (unreadRep.length > 0) {
+      const target = unreadRep[0];
+      setActiveAlertPill({
+        orderId: target.orderId,
+        tipo: target.tipo,
+        title: target.tipo === 'repartidor'
+          ? `¡Repartidor Asignado! #${target.orderId.slice(0, 8)}`
+          : `¡Pedido en Camino! #${target.orderId.slice(0, 8)}`,
+        total: target.total,
+      });
+    } else {
+      setActiveAlertPill(null);
+    }
+  }, [pedidos]);
+
+  const handleMarkItemAsRead = (orderId, tipo) => {
+    markClientOrderAsRead(orderId, tipo);
+    setClientNotifications((prev) =>
+      prev.map((n) => (n.orderId === orderId && n.tipo === tipo ? { ...n, unread: false } : n))
+    );
+    setActiveAlertPill((prev) => (prev?.orderId === orderId ? null : prev));
+  };
+
+  const handleMarkAllAsRead = () => {
+    markAllClientOrdersAsRead(clientNotifications);
+    setClientNotifications((prev) => prev.map((n) => ({ ...n, unread: false })));
+    setActiveAlertPill(null);
+  };
+
+  // Pedidos de la fecha seleccionada
+  const isToday = selectedDate === localToday;
+  const pedidosFecha = pedidos.filter(p => p.created_at?.slice(0, 10) === selectedDate);
+
+  // ── Top Productos Más Comprados ──────────────────────────────
+  const topProductosComprados = useMemo(() => {
+    const targetPedidos = topClienteScope === 'fecha' ? pedidosFecha : pedidos;
+    const map = new Map();
+
+    targetPedidos.forEach(p => {
+      if (p.estado === 'cancelado') return;
+      const comercioNombre = p.comercios_datos?.nombre_comercial || 'Comercio';
+      (p.pedido_items || []).forEach(item => {
+        const prod = item.productos;
+        const nombre = prod?.nombre || 'Producto';
+        const key = prod?.id || nombre;
+        const cant = Number(item.cantidad) || 1;
+        const precio = Number(item.precio_usd) || 0;
+        const subtotal = Number(item.subtotal_usd) || (cant * precio);
+        const img = prod?.imagen_url || null;
+
+        if (!map.has(key)) {
+          map.set(key, {
+            id: key,
+            nombre,
+            comercio: comercioNombre,
+            imagen_url: img,
+            totalComprados: 0,
+            totalGastado: 0,
+            vecesPedido: 0,
+          });
+        }
+        const entry = map.get(key);
+        entry.totalComprados += cant;
+        entry.totalGastado += subtotal;
+        entry.vecesPedido += 1;
+        if (!entry.imagen_url && img) entry.imagen_url = img;
+      });
+    });
+
+    return Array.from(map.values())
+      .sort((a, b) => b.totalComprados - a.totalComprados || b.totalGastado - a.totalGastado);
+  }, [pedidos, pedidosFecha, topClienteScope]);
+
+  const maxComprados = topProductosComprados[0]?.totalComprados || 1;
 
   if (loading) return <div className="db-loading"><span className="db-spinner" /></div>;
 
-  // KPIs
-  const totalGastado   = pedidos.filter(p => p.estado === 'entregado').reduce((a, p) => a + Number(p.total_usd), 0);
-  const totalPedidos   = pedidos.length;
-  const entregados     = pedidos.filter(p => p.estado === 'entregado').length;
-  const calificaciones = pedidos.filter(p => p.valoracion).map(p => p.valoracion);
-  const avgVal         = calificaciones.length ? (calificaciones.reduce((a, b) => a + b, 0) / calificaciones.length) : null;
+  // KPIs del período
+  const totalFecha     = pedidosFecha.length;
+  const entregadosFecha = pedidosFecha.filter(p => p.estado === 'entregado').length;
+  const pendientesFecha = pedidosFecha.filter(p => ['pendiente', 'confirmado', 'en_preparacion'].includes(p.estado)).length;
+  const enCaminoFecha  = pedidosFecha.filter(p => p.estado === 'en_camino').length;
+  const gastoFecha     = pedidosFecha.filter(p => p.estado === 'entregado').reduce((a, p) => a + Number(p.total_usd), 0);
 
-  // Gráfico 1: Pedidos por estado
-  const ESTADOS = ['pendiente', 'confirmado', 'en_preparacion', 'en_camino', 'entregado', 'cancelado'];
-  const ESTADO_LABEL = {
-    pendiente: 'Pendiente', confirmado: 'Confirm.', en_preparacion: 'Preparan.',
-    en_camino: 'En camino', entregado: 'Entregado', cancelado: 'Cancelado',
-  };
-  const byEstado = ESTADOS.map(e => ({
-    label: ESTADO_LABEL[e],
-    value: pedidos.filter(p => p.estado === e).length,
-    color: ESTADO_COLOR[e],
-  })).filter(d => d.value > 0);
+  // Filtro de estado sobre la fecha seleccionada
+  const filtrados = filter === 'todos'
+    ? pedidosFecha
+    : pedidosFecha.filter(p => p.estado === filter);
 
-  // Gráfico 2: Métodos de pago
-  const metodos = ['pago_movil', 'zelle', 'transferencia', 'efectivo_usd', 'efectivo_bs'];
-  const METODO_LABEL = {
-    pago_movil: 'Pago Móvil', zelle: 'Zelle', transferencia: 'Transfer.',
-    efectivo_usd: 'USD', efectivo_bs: 'Bs.',
-  };
-  const byMetodo = metodos.map(m => ({
-    label: METODO_LABEL[m],
-    value: pagos.filter(p => p.metodo === m).length,
-    color: METODO_COLOR[m],
-  })).filter(d => d.value > 0);
+  const formatTime = (iso) => new Date(iso).toLocaleTimeString('es-VE', {
+    hour: '2-digit', minute: '2-digit',
+  });
+  const dateLabel = isToday
+    ? new Date().toLocaleDateString('es-VE', { weekday: 'long', day: 'numeric', month: 'long' })
+    : new Date(selectedDate + 'T12:00:00').toLocaleDateString('es-VE', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
 
   return (
     <div className="db-root">
+      {/* Hero */}
       <div className="db-hero">
         <div>
-          <h1 className="db-hero-title">Mi Dashboard</h1>
-          <p className="db-hero-sub">Resumen de tu actividad como cliente</p>
+          <h1 className="db-hero-title">📦 Mis Pedidos</h1>
+          <p className="db-hero-sub" style={{ textTransform: 'capitalize' }}>{dateLabel}</p>
         </div>
         <div className="db-hero-right">
+          {/* Píldora de Alerta en Vivo para el Cliente */}
+          {activeAlertPill && (
+            <div
+              className={`db-alert-hero-chip db-alert-hero-chip--${activeAlertPill.tipo}`}
+              onClick={() => {
+                handleMarkItemAsRead(activeAlertPill.orderId, activeAlertPill.tipo);
+                onGoToTracking?.(activeAlertPill.orderId);
+              }}
+              title="Clic para ver seguimiento en vivo"
+            >
+              <span className="db-alert-hero-pulse" />
+              <span className="db-alert-hero-icon">🛵</span>
+              <span className="db-alert-hero-text">
+                <strong>{activeAlertPill.title}</strong>
+                {activeAlertPill.total !== undefined && ` · $${Number(activeAlertPill.total).toFixed(2)}`}
+              </span>
+              <span className="db-alert-hero-cta">Ver →</span>
+              <button
+                type="button"
+                className="db-alert-hero-close"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleMarkItemAsRead(activeAlertPill.orderId, activeAlertPill.tipo);
+                  setActiveAlertPill(null);
+                }}
+                title="Cerrar y marcar como leída"
+              >
+                ✕
+              </button>
+            </div>
+          )}
+
           {registeredRol === 'comercio' ? (
             <div className="db-rol-toggle">
               <button
@@ -484,6 +708,34 @@ function DashboardCliente({ session, onSignOut, onGoToProfile, registeredRol, cu
           ) : (
             <span className="db-hero-badge db-hero-badge--cliente">👤 Cliente</span>
           )}
+
+          {/* Campana de Notificaciones y Alertas de Cliente */}
+          <div className="db-hero-alerts-bell-wrap">
+            <ClienteAlertCenter
+              notifications={clientNotifications}
+              unreadCount={clientNotifications.filter((n) => n.unread).length}
+              isOpen={showClientNotifCenter}
+              onToggleOpen={() => setShowClientNotifCenter((prev) => !prev)}
+              onClose={() => setShowClientNotifCenter(false)}
+              onMarkAllAsRead={handleMarkAllAsRead}
+              onMarkItemAsRead={handleMarkItemAsRead}
+              onClearHistory={handleMarkAllAsRead}
+              onGoToTracking={(orderId) => {
+                setShowClientNotifCenter(false);
+                onGoToTracking?.(orderId);
+              }}
+            />
+          </div>
+
+          <button
+            className="db-refresh-btn"
+            onClick={() => fetchPedidos(true)}
+            disabled={refreshing}
+            aria-label="Actualizar pedidos"
+            title="Actualizar"
+          >
+            <span className={refreshing ? 'db-refresh-spin' : ''}>↻</span>
+          </button>
           <ProfileMenu
             session={session}
             onSignOut={onSignOut}
@@ -495,181 +747,491 @@ function DashboardCliente({ session, onSignOut, onGoToProfile, registeredRol, cu
         </div>
       </div>
 
-      {/* KPIs */}
-      <div className="db-kpis">
-        <KpiCard
-          icon={BoxIcon}
-          tag="Pedidos"
-          label="Total pedidos"
-          value={totalPedidos}
-          color="#f59e0b"
-          sub="Registrados en tu cuenta"
-          onClick={() => setSelectedKpi({
-            icon: BoxIcon,
-            tag: 'Pedidos',
-            label: 'Total pedidos',
-            value: totalPedidos,
-            color: '#f59e0b',
-            iconBg: '#38281a',
-            title: 'Resumen de tus Pedidos',
-            subtitle: 'Detalle del estado de todas tus solicitudes',
-            metrics: [
-              { label: 'Entregados con éxito', value: entregados, color: '#10b981', sub: `${totalPedidos ? Math.round((entregados / totalPedidos) * 100) : 0}% efectividad` },
-              { label: 'En proceso', value: pedidos.filter(p => ['pendiente', 'confirmado', 'en_preparacion', 'en_camino'].includes(p.estado)).length, color: '#3b82f6', sub: 'Activos en curso' },
-              { label: 'Cancelados', value: pedidos.filter(p => p.estado === 'cancelado').length, color: '#f87171', sub: 'No completados' },
-              { label: 'Inversión total', value: `$${fmt(totalGastado)}`, color: '#f59e0b', sub: 'En pedidos entregados' },
-            ],
-            breakdownTitle: 'Distribución por Estado',
-            breakdown: ESTADOS.map(e => {
-              const count = pedidos.filter(p => p.estado === e).length;
-              return {
-                label: ESTADO_LABEL[e],
-                value: `${count} pedido${count === 1 ? '' : 's'}`,
-                percent: totalPedidos ? Math.round((count / totalPedidos) * 100) : 0,
-                color: ESTADO_COLOR[e],
-              };
-            }).filter(b => b.percent > 0),
-            itemsTitle: 'Últimos pedidos registrados',
-            items: pedidos.slice(0, 4).map(p => ({
-              title: `Pedido #${p.id.slice(0, 8)}`,
-              sub: formatDate(p.created_at),
-              badge: `$${fmt(p.total_usd)} · ${ESTADO_LABEL[p.estado] || p.estado}`,
-              badgeBg: `${ESTADO_COLOR[p.estado] || '#6c63ff'}22`,
-              badgeColor: ESTADO_COLOR[p.estado] || '#a5b4fc',
-            })),
-            tip: 'Puedes consultar el estado detallado y chatear con el comercio o repartidor desde la sección de seguimiento.',
-          })}
-        />
+      {/* Banner interactivo si hay un pedido activo con repartidor asignado */}
+      {(() => {
+        const activeOrderWithRep = pedidos.find(p => 
+          p.repartidores_datos?.profiles?.nombre_completo &&
+          ['pendiente', 'confirmado', 'en_preparacion', 'en_camino'].includes(p.estado)
+        );
+        if (!activeOrderWithRep) return null;
+        const repName = activeOrderWithRep.repartidores_datos.profiles.nombre_completo;
+        const vehiculo = activeOrderWithRep.repartidores_datos.vehiculo || 'Repartidor';
+        const comercio = activeOrderWithRep.comercios_datos?.nombre_comercial || 'Comercio';
 
-        <KpiCard
-          icon={CheckCircleIcon}
-          tag="Entregas"
-          label="Entregados"
-          value={entregados}
-          color="#10b981"
-          iconBg="#192820"
-          sub="Completados con éxito"
-          onClick={() => setSelectedKpi({
-            icon: CheckCircleIcon,
-            tag: 'Entregas',
-            label: 'Entregados',
-            value: entregados,
-            color: '#10b981',
-            iconBg: '#192820',
-            title: 'Resumen de Entregas Exitosas',
-            subtitle: 'Pedidos despachados y recibidos satisfactoriamente',
-            metrics: [
-              { label: 'Tasa de efectividad', value: `${totalPedidos ? Math.round((entregados / totalPedidos) * 100) : 0}%`, color: '#10b981', sub: 'Del total de tus pedidos' },
-              { label: 'Total invertido', value: `$${fmt(totalGastado)}`, color: '#f59e0b', sub: 'En entregas exitosas' },
-              { label: 'Gasto promedio', value: `$${fmt(entregados ? totalGastado / entregados : 0)}`, color: '#3b82f6', sub: 'Por pedido completado' },
-              { label: 'Con calificación', value: calificaciones.length, color: '#fbbf24', sub: 'Evaluados por ti' },
-            ],
-            itemsTitle: 'Últimas entregas completadas',
-            items: pedidos.filter(p => p.estado === 'entregado').slice(0, 4).map(p => ({
-              title: `Pedido #${p.id.slice(0, 8)}`,
-              sub: formatDate(p.created_at),
-              badge: `$${fmt(p.total_usd)} ${p.valoracion ? `· ${p.valoracion}★` : ''}`,
-              badgeBg: 'rgba(16, 185, 129, 0.15)',
-              badgeColor: '#6ee7b7',
-            })),
-            tip: 'Calificar cada entrega nos ayuda a mantener y premiar a los mejores repartidores.',
-          })}
-        />
+        return (
+          <div className="ca-dashboard-banner">
+            <div className="ca-dashboard-banner-left">
+              <span className="ca-dashboard-banner-icon">🛵</span>
+              <div>
+                <h4 className="ca-dashboard-banner-title">
+                  ¡Repartidor asignado a tu pedido!
+                </h4>
+                <p className="ca-dashboard-banner-sub">
+                  <strong>{repName}</strong> ({vehiculo}) está asignado a tu pedido de <strong>{comercio}</strong>.
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              className="ca-dashboard-banner-btn"
+              onClick={() => onGoToTracking?.(activeOrderWithRep.id)}
+            >
+              🛵 Rastrear Pedido ➔
+            </button>
+          </div>
+        );
+      })()}
 
-        <KpiCard
-          icon={DollarIcon}
-          tag="Finanzas"
-          label="Gasto total"
-          value={`$${fmt(totalGastado)}`}
-          color="#f59e0b"
-          sub="Total invertido en USD"
-          onClick={() => setSelectedKpi({
-            icon: DollarIcon,
-            tag: 'Finanzas',
-            label: 'Gasto total',
-            value: `$${fmt(totalGastado)}`,
-            color: '#f59e0b',
-            iconBg: '#38281a',
-            title: 'Resumen Financiero de Compras',
-            subtitle: 'Consolidado de pagos e inversión acumulada en tus compras',
-            metrics: [
-              { label: 'Total invertido', value: `$${fmt(totalGastado)}`, color: '#f59e0b', sub: 'USD en entregas' },
-              { label: 'Ticket promedio', value: `$${fmt(entregados ? totalGastado / entregados : 0)}`, color: '#3b82f6', sub: 'Por pedido entregado' },
-              { label: 'Reportes registrados', value: pagos.length, color: '#10b981', sub: 'Transacciones de pago' },
-              { label: 'Pedidos completados', value: entregados, color: '#06b6d4', sub: 'Entregados' },
-            ],
-            breakdownTitle: 'Distribución por Método de Pago',
-            breakdown: metodos.map(m => {
-              const count = pagos.filter(p => p.metodo === m).length;
-              return {
-                label: METODO_LABEL[m],
-                value: `${count} reporte${count === 1 ? '' : 's'}`,
-                percent: pagos.length ? Math.round((count / pagos.length) * 100) : 0,
-                color: METODO_COLOR[m],
-              };
-            }).filter(b => b.percent > 0),
-            itemsTitle: 'Últimos reportes de pago registrados',
-            items: pagos.slice(0, 4).map(p => ({
-              title: `${METODO_LABEL[p.metodo] || p.metodo} · ${p.estado ? p.estado.toUpperCase() : 'REPORTADO'}`,
-              sub: formatDate(p.created_at),
-              badge: `$${fmt(p.monto_usd)} ${p.monto_bs ? `(Bs. ${fmt(p.monto_bs)})` : ''}`,
-              badgeBg: 'rgba(245, 158, 11, 0.15)',
-              badgeColor: '#fbbf24',
-            })),
-            tip: 'Los pagos son validados directamente contra el reporte y la cuenta receptora.',
-          })}
-        />
-
-        <KpiCard
-          icon={StarIcon}
-          tag="Feedback"
-          label="Val. promedio"
-          value={avgVal ? avgVal.toFixed(1) + ' / 5' : 'N/A'}
-          color="#fbbf24"
-          sub="Puntuación a repartidores"
-          onClick={() => setSelectedKpi({
-            icon: StarIcon,
-            tag: 'Feedback',
-            label: 'Val. promedio',
-            value: avgVal ? avgVal.toFixed(1) + ' / 5' : 'N/A',
-            color: '#fbbf24',
-            iconBg: '#38281a',
-            title: 'Resumen de tus Calificaciones',
-            subtitle: 'Feedback y valoraciones otorgadas por tus pedidos',
-            metrics: [
-              { label: 'Promedio general', value: avgVal ? `${avgVal.toFixed(1)} / 5` : 'Sin calificar', color: '#fbbf24', sub: 'Puntuación promedio' },
-              { label: 'Pedidos calificados', value: calificaciones.length, color: '#10b981', sub: `De ${entregados} entregados` },
-              { label: 'Pendientes por calificar', value: Math.max(0, entregados - calificaciones.length), color: '#f59e0b', sub: 'Sin valoración aún' },
-              { label: 'Satisfacción alta', value: `${calificaciones.length ? Math.round((calificaciones.filter(v => v >= 4).length / calificaciones.length) * 100) : 0}%`, color: '#06b6d4', sub: 'Calificaciones 4★ o 5★' },
-            ],
-            breakdownTitle: 'Distribución de Estrellas Otorgadas',
-            breakdown: [5, 4, 3, 2, 1].map(s => {
-              const count = calificaciones.filter(v => v === s).length;
-              return {
-                label: `${s} Estrella${s > 1 ? 's' : ''} (${'★'.repeat(s)})`,
-                value: `${count}`,
-                percent: calificaciones.length ? Math.round((count / calificaciones.length) * 100) : 0,
-                color: s >= 4 ? '#10b981' : s === 3 ? '#f59e0b' : '#f87171',
-              };
-            }),
-            tip: 'Tus opiniones ayudan a premiar la responsabilidad y el buen trato de los repartidores.',
-          })}
-        />
-      </div>
-
-      <div className={byMetodo.length > 0 ? "db-grid-2" : ""}>
-        <Section title="Pedidos por Estado" subtitle="Distribución de todos tus pedidos">
-          {byEstado.length ? <BarChart data={byEstado} /> : <p className="db-empty">Sin pedidos aún</p>}
-        </Section>
-
-        {byMetodo.length > 0 && (
-          <Section title="Métodos de Pago Usados" subtitle="Cantidad de reportes por método">
-            <BarChart data={byMetodo} />
-          </Section>
+      {/* Selector de fecha */}
+      <div className="db-date-bar">
+        <div className="db-date-bar-left">
+          <span className="db-date-bar-icon">📅</span>
+          <span className="db-date-bar-label">{isToday ? 'Hoy' : 'Fecha seleccionada'}</span>
+          <input
+            type="date"
+            className="db-date-input"
+            value={selectedDate}
+            max={localToday}
+            onChange={e => { setSelectedDate(e.target.value); setFilter('todos'); setExpanded(null); }}
+          />
+        </div>
+        {!isToday && (
+          <button
+            className="db-date-today-btn"
+            onClick={() => { setSelectedDate(localToday); setFilter('todos'); setExpanded(null); }}
+          >
+            ↩ Volver a hoy
+          </button>
         )}
       </div>
 
-      <KpiDetailModal kpi={selectedKpi} onClose={() => setSelectedKpi(null)} />
+      {/* KPIs del período */}
+      <div className="db-kpis">
+        <KpiCard
+          icon={BoxIcon}
+          tag={isToday ? 'Hoy' : 'Ese día'}
+          label="Pedidos del día"
+          value={totalFecha}
+          color="#f59e0b"
+          sub={totalFecha === 0 ? 'Sin pedidos ese día' : `${totalFecha} pedido${totalFecha !== 1 ? 's' : ''} realizados`}
+        />
+        <KpiCard
+          icon={CheckCircleIcon}
+          tag="Entregados"
+          label="Completados"
+          value={entregadosFecha}
+          color="#10b981"
+          iconBg="#192820"
+          sub={entregadosFecha > 0 ? `$${fmt(gastoFecha)} gastados` : 'Sin entregas'}
+        />
+        <KpiCard
+          icon={MotoIcon}
+          tag="En camino"
+          label="En ruta"
+          value={enCaminoFecha}
+          color="#818cf8"
+          iconBg="#1a1a2e"
+          sub={enCaminoFecha > 0 ? 'Pedido en camino 🛵' : 'Sin pedidos en ruta'}
+        />
+        <KpiCard
+          icon={WrenchIcon}
+          tag="Pendientes"
+          label="Por procesar"
+          value={pendientesFecha}
+          color="#38bdf8"
+          iconBg="#0c1f2e"
+          sub={pendientesFecha > 0 ? 'Esperando confirmación' : 'Todo al día ✓'}
+        />
+      </div>
+
+      {/* ═══ TOP PRODUCTOS MÁS COMPRADOS ═══ */}
+      <div className="db-top-section db-top-section--cliente">
+        <div className="db-top-header">
+          <div className="db-top-header-left">
+            <div className="db-top-badge-title">
+              <span className="db-top-header-icon">⭐</span>
+              <h2 className="db-top-title">Tus Productos Más Comprados</h2>
+            </div>
+            <p className="db-top-sub">
+              Tus artículos preferidos y compras frecuentes en la plataforma
+            </p>
+          </div>
+          <div className="db-top-header-right">
+            <div className="db-top-scope-toggle">
+              <button
+                type="button"
+                className={`db-top-scope-btn ${topClienteScope === 'todo' ? 'db-top-scope-btn--active' : ''}`}
+                onClick={() => setTopClienteScope('todo')}
+              >
+                Histórico Total
+              </button>
+              <button
+                type="button"
+                className={`db-top-scope-btn ${topClienteScope === 'fecha' ? 'db-top-scope-btn--active' : ''}`}
+                onClick={() => setTopClienteScope('fecha')}
+              >
+                {isToday ? 'De Hoy' : 'Fecha Seleccionada'}
+              </button>
+            </div>
+            {onGoToTiendas && (
+              <button
+                type="button"
+                className="db-top-header-action-btn"
+                onClick={() => onGoToTiendas()}
+              >
+                <ShoppingBag size={14} />
+                <span>Explorar Tiendas</span>
+              </button>
+            )}
+          </div>
+        </div>
+
+        {topProductosComprados.length === 0 ? (
+          <div className="db-top-empty">
+            <span className="db-top-empty-icon">🛍️</span>
+            <div>
+              <h4 className="db-top-empty-title">
+                {topClienteScope === 'fecha'
+                  ? 'No realizaste compras de productos en esta fecha'
+                  : 'Aún no tienes productos comprados'}
+              </h4>
+              <p className="db-top-empty-desc">
+                {topClienteScope === 'fecha'
+                  ? 'Cambia al filtro "Histórico Total" para ver tu ranking general.'
+                  : 'Explora nuestros comercios y pide tus productos favoritos para armar tu top personal.'}
+              </p>
+            </div>
+            {onGoToTiendas && (
+              <button type="button" className="db-top-cta-btn" onClick={() => onGoToTiendas()}>
+                Ir a Tiendas ➔
+              </button>
+            )}
+          </div>
+        ) : (
+          <div className="db-top-grid">
+            {(showAllTopCliente ? topProductosComprados : topProductosComprados.slice(0, 5)).map((prod, idx) => {
+              const rank = idx + 1;
+              const isFirst = rank === 1;
+              const isSecond = rank === 2;
+              const isThird = rank === 3;
+              const pct = Math.round((prod.totalComprados / maxComprados) * 100);
+
+              return (
+                <div
+                  key={prod.id || idx}
+                  className={`db-top-card ${isFirst ? 'db-top-card--first' : ''} ${isSecond ? 'db-top-card--second' : ''} ${isThird ? 'db-top-card--third' : ''}`}
+                >
+                  <div className="db-top-card-rank-wrap">
+                    {isFirst && (
+                      <span className="db-top-rank-badge db-top-rank-badge--gold">
+                        👑 #1 Más Comprado
+                      </span>
+                    )}
+                    {isSecond && (
+                      <span className="db-top-rank-badge db-top-rank-badge--silver">
+                        🥈 #2 Favorito
+                      </span>
+                    )}
+                    {isThird && (
+                      <span className="db-top-rank-badge db-top-rank-badge--bronze">
+                        🥉 #3 Top
+                      </span>
+                    )}
+                    {!isFirst && !isSecond && !isThird && (
+                      <span className="db-top-rank-badge db-top-rank-badge--default">
+                        #{rank}
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="db-top-card-content">
+                    <div className="db-top-img-wrap">
+                      {prod.imagen_url ? (
+                        <img src={prod.imagen_url} alt={prod.nombre} className="db-top-img" />
+                      ) : (
+                        <div className="db-top-img-fallback">
+                          <span>🍽️</span>
+                        </div>
+                      )}
+                      {isFirst && <span className="db-top-first-glow" />}
+                    </div>
+
+                    <div className="db-top-card-info">
+                      <div className="db-top-card-main-meta">
+                        <h3 className="db-top-prod-name" title={prod.nombre}>
+                          {prod.nombre}
+                        </h3>
+                        <span className="db-top-comercio-tag">
+                          🏪 {prod.comercio}
+                        </span>
+                      </div>
+
+                      <div className="db-top-stats-row">
+                        <div className="db-top-stat-chip db-top-stat-chip--qty">
+                          <span className="db-top-stat-val">{prod.totalComprados}</span>
+                          <span className="db-top-stat-lbl">
+                            {prod.totalComprados === 1 ? 'unidad' : 'unidades'}
+                          </span>
+                        </div>
+                        <div className="db-top-stat-chip db-top-stat-chip--spent">
+                          <span className="db-top-stat-val">${prod.totalGastado.toFixed(2)}</span>
+                          <span className="db-top-stat-lbl">total</span>
+                        </div>
+                        <div className="db-top-stat-chip db-top-stat-chip--orders">
+                          <span className="db-top-stat-val">{prod.vecesPedido}</span>
+                          <span className="db-top-stat-lbl">
+                            {prod.vecesPedido === 1 ? 'pedido' : 'pedidos'}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="db-top-progress-wrap" title={`Frecuencia de compra: ${pct}% respecto a tu producto más pedido`}>
+                        <div className="db-top-progress-bg">
+                          <div
+                            className="db-top-progress-fill db-top-progress-fill--cliente"
+                            style={{ width: `${Math.max(pct, 8)}%` }}
+                          />
+                        </div>
+                        <span className="db-top-progress-lbl">{pct}%</span>
+                      </div>
+                    </div>
+
+                    {onGoToTiendas && (
+                      <button
+                        type="button"
+                        className="db-top-card-action-btn"
+                        onClick={() => onGoToTiendas()}
+                        title="Ver tiendas para pedir de nuevo"
+                      >
+                        <span>Pedir</span>
+                        <ChevronRight size={14} />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {topProductosComprados.length > 5 && (
+          <div className="db-top-footer-toggle">
+            <button
+              type="button"
+              className="db-top-toggle-more-btn"
+              onClick={() => setShowAllTopCliente(prev => !prev)}
+            >
+              {showAllTopCliente
+                ? '▲ Ver menos'
+                : `▼ Ver ranking completo (${topProductosComprados.length} productos)`}
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Lista de pedidos */}
+      <div className="db-section">
+        <div className="db-section-header">
+          <h2 className="db-section-title">{isToday ? 'Pedidos de hoy' : 'Pedidos del día'}</h2>
+          <p className="db-section-sub">
+            {totalFecha === 0 ? 'No realizaste pedidos este día' : `${totalFecha} pedido${totalFecha !== 1 ? 's' : ''} registrados`}
+          </p>
+        </div>
+
+        {/* Filtros */}
+        <div className="db-day-filters" role="tablist">
+          {ESTADOS_FILTER.map(f => (
+            <button
+              key={f}
+              id={`db-filter-${f}`}
+              role="tab"
+              aria-selected={filter === f}
+              className={`db-day-filter-btn ${filter === f ? 'db-day-filter-btn--active' : ''}`}
+              onClick={() => setFilter(f)}
+            >
+              {f === 'todos' ? '🗂 Todos' : ESTADO_LABEL[f]}
+            </button>
+          ))}
+        </div>
+
+        {/* Lista */}
+        {filtrados.length === 0 ? (
+          <div className="db-day-empty">
+            <span>🛍️</span>
+            <p>
+              {totalFecha === 0
+                ? isToday ? '¡Sin pedidos hoy! Ve a Tiendas para hacer tu primer pedido.' : 'No realizaste pedidos en esta fecha.'
+                : `No hay pedidos con estado "${ESTADO_LABEL[filter] || filter}" en este período.`
+              }
+            </p>
+          </div>
+        ) : (
+          <div className="db-day-list">
+            {filtrados.map(pedido => {
+              const isOpen     = expanded === pedido.id;
+              const tienePago  = pedido.reportes_pago?.length > 0;
+              const yaConfirmo = Boolean(pedido.confirmacion_cliente || pedido.valoracion);
+              const badgeColor = ESTADO_COLOR[pedido.estado] || '#64748b';
+              const badgeLabel = pedido.estado === 'entregado' && !yaConfirmo
+                ? 'Por confirmar'
+                : (ESTADO_LABEL[pedido.estado] || pedido.estado);
+
+              return (
+                <div key={pedido.id} className={`db-day-card ${isOpen ? 'db-day-card--open' : ''}`}>
+                  {/* Cabecera */}
+                  <button
+                    className="db-day-card-header"
+                    onClick={() => setExpanded(prev => prev === pedido.id ? null : pedido.id)}
+                    aria-expanded={isOpen}
+                  >
+                    <div className="db-day-card-left">
+                      <span
+                        className="db-day-badge"
+                        style={{ background: `${badgeColor}22`, color: badgeColor, border: `1px solid ${badgeColor}44` }}
+                      >
+                        {badgeLabel}
+                      </span>
+                      <span className={`db-day-badge-pago ${tienePago ? 'db-day-badge-pago--pagado' : 'db-day-badge-pago--pendiente'}`}>
+                        {tienePago ? '✅ Pagado' : '⏳ Pendiente por Pagar'}
+                      </span>
+                      {pedido.repartidores_datos?.profiles?.nombre_completo && (
+                        <span className="db-day-badge-repartidor">
+                          🛵 {pedido.repartidores_datos.profiles.nombre_completo}
+                        </span>
+                      )}
+                      <div>
+                        <p className="db-day-comercio">{pedido.comercios_datos?.nombre_comercial ?? '—'}</p>
+                        <p className="db-day-time">{formatTime(pedido.created_at)}</p>
+                      </div>
+                    </div>
+                    <div className="db-day-card-right">
+                      <span className="db-day-total">${pedido.total_usd?.toFixed(2)}</span>
+                      <span className={`db-day-chevron ${isOpen ? 'db-day-chevron--up' : ''}`}>›</span>
+                    </div>
+                  </button>
+
+                  {/* Detalle expandido */}
+                  {isOpen && (
+                    <div className="db-day-card-body">
+                      {/* Items del pedido */}
+                      {(pedido.pedido_items ?? []).length > 0 && (
+                        <div className="db-day-items">
+                          {pedido.pedido_items.map((item, i) => (
+                            <div key={i} className="db-day-item-row">
+                              {item.productos?.imagen_url && (
+                                <img src={item.productos.imagen_url} alt={item.productos?.nombre} className="db-day-item-img" />
+                              )}
+                              <span className="db-day-item-name">{item.productos?.nombre ?? '—'}</span>
+                              <span className="db-day-item-qty">x{item.cantidad}</span>
+                              <span className="db-day-item-sub">${item.subtotal_usd?.toFixed(2)}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Meta info */}
+                      <div className="db-day-meta">
+                        {pedido.direccion_entrega && (
+                          <div className="db-day-meta-row">
+                            <span className="db-day-meta-label">📍 Dirección</span>
+                            <span>{pedido.direccion_entrega}</span>
+                          </div>
+                        )}
+                        {pedido.repartidores_datos?.profiles?.nombre_completo && (
+                          <div className="db-day-meta-row">
+                            <span className="db-day-meta-label">🛵 Repartidor</span>
+                            <span>{pedido.repartidores_datos.profiles.nombre_completo}</span>
+                          </div>
+                        )}
+                        <div className="db-day-meta-row">
+                          <span className="db-day-meta-label">💳 Pago</span>
+                          {tienePago ? (
+                            <span>
+                              {pedido.reportes_pago[0].metodo?.replace(/_/g, ' ')} —
+                              Ref: {pedido.reportes_pago[0].referencia} —{' '}
+                              <span style={{ color: pedido.reportes_pago[0].estado === 'verificado' ? '#10b981' : '#f59e0b' }}>
+                                {pedido.reportes_pago[0].estado}
+                              </span>
+                            </span>
+                          ) : (
+                            <span style={{ color: '#f87171' }}>Sin reporte de pago</span>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Acciones */}
+                      <div className="db-day-actions">
+                        {!tienePago && (
+                          <a
+                            href="#"
+                            className="db-day-btn db-day-btn--pagar"
+                            onClick={e => { e.preventDefault(); onGoToPago?.(pedido.id); }}
+                          >
+                            💳 Reportar Pago
+                          </a>
+                        )}
+                        {pedido.estado === 'entregado' && !yaConfirmo && tienePago && (
+                          <span className="db-day-meta-label" style={{ color: '#f59e0b' }}>
+                            ⚠️ Ve a Rastreo &amp; Chat para confirmar la recepción
+                          </span>
+                        )}
+                        {pedido.estado === 'entregado' && yaConfirmo && (
+                          <span style={{ color: '#10b981', fontSize: '0.82rem' }}>✅ Entrega confirmada</span>
+                        )}
+                        {pedido.repartidores_datos?.profiles?.nombre_completo && (
+                          <button
+                            type="button"
+                            className="db-day-btn"
+                            style={{
+                              background: 'linear-gradient(135deg, #0284c7, #2563eb)',
+                              color: '#ffffff',
+                              border: 'none',
+                              cursor: 'pointer',
+                              padding: '0.45rem 0.85rem',
+                              borderRadius: '8px',
+                              fontWeight: 600,
+                              fontSize: '0.78rem'
+                            }}
+                            onClick={() => onGoToTracking?.(pedido.id)}
+                          >
+                            🛵 Rastrear Pedido &amp; Chat
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Enlace a historial completo */}
+      {pedidos.length > 0 && (
+        <div style={{ textAlign: 'center', marginTop: '0.5rem', marginBottom: '1.5rem' }}>
+          <button
+            type="button"
+            onClick={() => onGoToHistorial?.()}
+            style={{
+              background: 'rgba(249,115,22,0.12)',
+              border: '1px solid rgba(249,115,22,0.3)',
+              color: '#fb923c',
+              borderRadius: '10px',
+              padding: '0.55rem 1.4rem',
+              fontSize: '0.83rem',
+              fontWeight: 600,
+              cursor: 'pointer',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '0.45rem',
+              transition: 'all 0.2s ease',
+            }}
+          >
+            📋 Ver historial completo de pedidos
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -682,63 +1244,534 @@ function DashboardComercio({ session, onSignOut, onGoToProfile, registeredRol, c
   const [productos, setProductos]   = useState([]);
   const [comercio, setComercio]     = useState(null);
   const [loading, setLoading]       = useState(true);
-  const [selectedKpi, setSelectedKpi] = useState(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const [filter, setFilter]         = useState('todos');
+  const [expanded, setExpanded]     = useState(null);
+  const [topComercioScope, setTopComercioScope] = useState('todo'); // 'todo' | 'fecha'
+  const [showAllTopComercio, setShowAllTopComercio] = useState(false);
+
+  // Fecha seleccionada (local YYYY-MM-DD)
+  const localToday = (() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  })();
+  const [selectedDate, setSelectedDate] = useState(localToday);
+
+  const ESTADO_LABEL = {
+    pendiente: 'Pendiente', confirmado: 'Confirmado', en_preparacion: 'En preparación',
+    en_camino: 'En camino', entregado: 'Entregado', cancelado: 'Cancelado',
+  };
+  const ESTADOS_FILTER = ['todos', 'pendiente', 'en_preparacion', 'en_camino', 'entregado', 'cancelado'];
+
+  async function fetchData(showRefreshing = false) {
+    if (showRefreshing) setRefreshing(true);
+    else setLoading(true);
+
+    const { data: com } = await supabase
+      .from('comercios_datos')
+      .select('id, nombre_comercial, categoria')
+      .eq('profile_id', session.user.id)
+      .single();
+
+    if (!com) { setLoading(false); setRefreshing(false); return; }
+    setComercio(com);
+
+    const [{ data: p }, { data: prods }] = await Promise.all([
+      supabase
+        .from('pedidos_entregas')
+        .select(`
+          id, estado, total_usd, created_at, updated_at, direccion_entrega, confirmacion_cliente,
+          profiles ( nombre_completo ),
+          repartidores_datos ( profiles ( nombre_completo ) ),
+          pedido_items (
+            cantidad, precio_usd, subtotal_usd,
+            productos ( id, nombre, imagen_url, precio_usd )
+          ),
+          reportes_pago ( metodo, estado, referencia, monto_bs, monto_usd )
+        `)
+        .eq('comercio_id', com.id)
+        .order('created_at', { ascending: false }),
+      supabase
+        .from('productos')
+        .select('id, nombre, stock, precio_usd, activo')
+        .eq('comercio_id', com.id),
+    ]);
+
+    setPedidos(p ?? []);
+    setProductos(prods ?? []);
+    setLoading(false);
+    setRefreshing(false);
+  }
+
+  useEffect(() => { fetchData(); }, [session]);
+
+  // ── Alertas en Tiempo Real para Dashboard Comercio ─────────────
+  const [alertToasts, setAlertToasts] = useState([]);
+  const [alertNotifications, setAlertNotifications] = useState(() => {
+    try {
+      const saved = localStorage.getItem('levant_comercio_notifs');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [showNotifCenter, setShowNotifCenter] = useState(false);
+  const [activeAlertPill, setActiveAlertPill] = useState(null);
+  const knownOrdersRef = useRef(new Map());
+  const initialLoadedRef = useRef(false);
+  const alertedEventsRef = useRef(new Set());
+  const dismissedPillsRef = useRef(new Set());
 
   useEffect(() => {
-    async function load() {
-      setLoading(true);
+    try {
+      localStorage.setItem('levant_comercio_notifs', JSON.stringify(alertNotifications.slice(0, 50)));
+    } catch {
+      // Ignorar
+    }
+  }, [alertNotifications]);
 
-      // Obtener comercio_id
-      const { data: com } = await supabase
-        .from('comercios_datos')
-        .select('id, nombre_comercial, categoria')
-        .eq('profile_id', session.user.id)
-        .single();
+  // ── Sincronizar pedidos con las alertas para que SOLO los pedidos no leídos aparezcan ──
+  useEffect(() => {
+    if (!pedidos || pedidos.length === 0) {
+      setAlertNotifications([]);
+      setActiveAlertPill(null);
+      return;
+    }
 
-      if (!com) { setLoading(false); return; }
-      setComercio(com);
+    const readIds = getReadOrderIds();
+    const notifs = [];
 
-      const [{ data: p }, { data: prods }] = await Promise.all([
-        supabase
+    pedidos.forEach((p) => {
+      const estadoNorm = (p.estado || '').toLowerCase();
+      const isPendiente = estadoNorm === 'pendiente' || estadoNorm === 'confirmado';
+      const isEntregado = estadoNorm === 'entregado' || p.confirmacion_cliente === true;
+      const clientName = (p.profiles?.nombre_completo) || (Array.isArray(p.profiles) ? p.profiles[0]?.nombre_completo : null) || 'Cliente';
+      const shortId = p.id ? p.id.slice(0, 8) : '--------';
+
+      // SOLO agregar a las alertas activas si NO ha sido leído:
+      if (isPendiente && !readIds.has(p.id)) {
+        notifs.push({
+          id: `order-pend-${p.id}`,
+          orderId: p.id,
+          tipo: 'nuevo',
+          title: `Pedido Hecho #${shortId}`,
+          desc: `Cliente: ${clientName} · ${p.direccion_entrega || 'Dirección de entrega'}`,
+          total: p.total_usd,
+          clientName,
+          pedido: p,
+          timestamp: p.created_at,
+          unread: true,
+        });
+      } else if (isEntregado && !readIds.has(`${p.id}-entregado`)) {
+        notifs.push({
+          id: `order-entr-${p.id}`,
+          orderId: p.id,
+          tipo: 'entregado',
+          title: `Pedido Entregado #${shortId}`,
+          desc: `Entregado exitosamente a ${clientName}`,
+          total: p.total_usd,
+          clientName,
+          pedido: p,
+          timestamp: p.updated_at || p.created_at,
+          unread: true,
+        });
+      }
+    });
+
+    setAlertNotifications(notifs);
+
+    // La píldora en el header SOLO aparece si hay pedidos NO LEÍDOS:
+    const unreadPending = notifs.filter((n) => n.tipo === 'nuevo');
+    const unreadDelivered = notifs.filter((n) => n.tipo === 'entregado');
+
+    if (unreadPending.length > 0) {
+      const target = unreadPending[0];
+      setActiveAlertPill({
+        tipo: 'nuevo',
+        title: unreadPending.length === 1
+          ? `¡Pedido Hecho! #${target.orderId.slice(0, 8)} (${target.clientName})`
+          : `¡${unreadPending.length} Pedidos Nuevos!`,
+        total: target.total,
+        orderId: target.orderId,
+      });
+    } else if (unreadDelivered.length > 0) {
+      const target = unreadDelivered[0];
+      setActiveAlertPill({
+        tipo: 'entregado',
+        title: unreadDelivered.length === 1
+          ? `¡Pedido Entregado! #${target.orderId.slice(0, 8)} (${target.clientName})`
+          : `¡${unreadDelivered.length} Pedidos Entregados!`,
+        total: target.total,
+        orderId: target.orderId,
+      });
+    } else {
+      // Si todos fueron leídos: la alerta NO debe aparecer más
+      setActiveAlertPill(null);
+    }
+  }, [pedidos]);
+
+  // ── Sincronizar en tiempo real cuando se lean alertas ────────────
+  useEffect(() => {
+    const handleReadUpdated = () => {
+      const readIds = getReadOrderIds();
+      setAlertNotifications((prev) => {
+        const next = prev.filter((n) => {
+          const key = n.tipo === 'entregado' ? `${n.orderId}-entregado` : n.orderId;
+          return !readIds.has(key);
+        });
+
+        // Actualizar píldora de alerta superior en vivo
+        const nextPending = next.filter((n) => n.tipo === 'nuevo');
+        const nextDelivered = next.filter((n) => n.tipo === 'entregado');
+        if (nextPending.length > 0) {
+          const target = nextPending[0];
+          setActiveAlertPill({
+            tipo: 'nuevo',
+            title: nextPending.length === 1
+              ? `¡Pedido Hecho! #${target.orderId.slice(0, 8)} (${target.clientName || 'Cliente'})`
+              : `¡${nextPending.length} Pedidos Nuevos!`,
+            total: target.total,
+            orderId: target.orderId,
+          });
+        } else if (nextDelivered.length > 0) {
+          const target = nextDelivered[0];
+          setActiveAlertPill({
+            tipo: 'entregado',
+            title: nextDelivered.length === 1
+              ? `¡Pedido Entregado! #${target.orderId.slice(0, 8)} (${target.clientName || 'Cliente'})`
+              : `¡${nextDelivered.length} Pedidos Entregados!`,
+            total: target.total,
+            orderId: target.orderId,
+          });
+        } else {
+          setActiveAlertPill(null);
+        }
+
+        return next;
+      });
+
+      setAlertToasts((prev) =>
+        prev.filter((t) => {
+          const key = t.tipo === 'entregado' ? `${t.orderId}-entregado` : t.orderId;
+          return !readIds.has(key);
+        })
+      );
+    };
+
+    window.addEventListener('levant_read_orders_updated', handleReadUpdated);
+    return () => window.removeEventListener('levant_read_orders_updated', handleReadUpdated);
+  }, []);
+
+  const handleMarkItemAsRead = (orderId, tipo = 'nuevo') => {
+    if (!orderId) return;
+    markOrderAsRead(orderId, tipo);
+    setAlertNotifications((prev) => prev.filter((n) => n.orderId !== orderId));
+    setActiveAlertPill((prev) => (prev?.orderId === orderId ? null : prev));
+    setAlertToasts((prev) => prev.filter((t) => t.orderId !== orderId));
+  };
+
+  const handleMarkAllAsRead = () => {
+    markAllOrdersAsRead(alertNotifications);
+    setAlertNotifications([]);
+    setActiveAlertPill(null);
+    setAlertToasts([]);
+  };
+
+  useEffect(() => {
+    if (!comercio?.id) return;
+    let isMounted = true;
+
+    // Inicializar pedidos conocidos
+    const initOrders = async () => {
+      try {
+        const { data } = await supabase
           .from('pedidos_entregas')
-          .select('id, estado, total_usd, created_at')
-          .eq('comercio_id', com.id),
-        supabase
-          .from('productos')
-          .select('id, nombre, stock, precio_usd, activo')
-          .eq('comercio_id', com.id),
+          .select('id, estado, confirmacion_cliente')
+          .eq('comercio_id', comercio.id)
+          .limit(100);
+
+        if (isMounted && data) {
+          data.forEach(p => {
+            const effective = (p.estado === 'entregado' || p.confirmacion_cliente) ? 'entregado' : (p.estado || 'pendiente');
+            knownOrdersRef.current.set(p.id, effective);
+          });
+          initialLoadedRef.current = true;
+        }
+      } catch (e) {
+        console.warn('Error inicializando pedidos en dashboard:', e);
+      }
+    };
+    initOrders();
+
+    const triggerNewOrderAlert = (ord) => {
+      if (!ord?.id) return;
+      if (isOrderRead(ord.id, 'nuevo')) return;
+
+      const key = `nuevo-${ord.id}`;
+      if (alertedEventsRef.current.has(key)) return;
+      alertedEventsRef.current.add(key);
+      knownOrdersRef.current.set(ord.id, ord.estado || 'pendiente');
+
+      playNewOrderSound();
+
+      const shortId = ord.id.slice(0, 8);
+      const clientName = (ord.profiles?.nombre_completo) || (Array.isArray(ord.profiles) ? ord.profiles[0]?.nombre_completo : null) || 'Cliente';
+      const toastId = `toast-db-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+
+      // Píldora de alerta en el header superior derecho
+      setActiveAlertPill({
+        tipo: 'nuevo',
+        title: `¡Nuevo Pedido! #${shortId} (${clientName})`,
+        total: ord.total_usd,
+        orderId: ord.id
+      });
+
+      // Notificación persistente
+      setAlertNotifications(prev => [
+        {
+          id: `notif-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          tipo: 'nuevo',
+          title: `Nuevo Pedido #${shortId}`,
+          desc: `Cliente: ${clientName} · Total: $${Number(ord.total_usd || 0).toFixed(2)} USD`,
+          total: ord.total_usd,
+          clientName,
+          orderId: ord.id,
+          pedido: ord,
+          timestamp: new Date().toISOString(),
+          unread: true
+        },
+        ...prev.filter(n => n.orderId !== ord.id)
       ]);
 
-      // Obtener items de pedidos entregados para top productos
-      const pedidosIds = (p ?? []).filter(x => x.estado === 'entregado').map(x => x.id);
-      let items = [];
-      if (pedidosIds.length) {
-        const { data: it } = await supabase
-          .from('pedido_items')
-          .select('producto_id, cantidad, subtotal_usd')
-          .in('pedido_id', pedidosIds);
-        items = it ?? [];
-      }
+      setAlertToasts(prev => [
+        {
+          id: toastId,
+          tipo: 'nuevo',
+          title: `¡Nuevo Pedido Hecho! #${shortId}`,
+          desc: `De ${clientName} · ${ord.direccion_entrega || 'Dirección de entrega'}`,
+          total: ord.total_usd,
+          orderId: ord.id,
+          pedido: ord,
+          timestamp: new Date().toISOString()
+        },
+        ...prev.slice(0, 2)
+      ]);
 
-      // Agregar ventas por producto
-      const ventasPorProd = {};
-      items.forEach(it => {
-        if (!ventasPorProd[it.producto_id]) ventasPorProd[it.producto_id] = { cantidad: 0, ingresos: 0 };
-        ventasPorProd[it.producto_id].cantidad  += it.cantidad;
-        ventasPorProd[it.producto_id].ingresos  += Number(it.subtotal_usd);
+      triggerDesktopNotification({
+        title: `🛍️ ¡Nuevo Pedido Recibido! (#${shortId})`,
+        body: `Cliente: ${clientName} · Total: $${Number(ord.total_usd || 0).toFixed(2)} USD`,
+        onClick: () => {
+          handleMarkItemAsRead(ord.id, 'nuevo');
+          localStorage.setItem('levant_comercio_selected_order', ord.id);
+          onGoToProfile?.();
+        }
       });
-      const prodsConVentas = (prods ?? []).map(pr => ({
-        ...pr,
-        vendidos: ventasPorProd[pr.id]?.cantidad  ?? 0,
-        ingresos: ventasPorProd[pr.id]?.ingresos  ?? 0,
-      }));
 
-      setProductos(prodsConVentas);
-      setPedidos(p ?? []);
-      setLoading(false);
-    }
-    load();
-  }, [session]);
+      setTimeout(() => {
+        setAlertToasts(prev => prev.filter(t => t.id !== toastId));
+      }, 8000);
+
+      fetchData(true);
+    };
+
+    const triggerDeliveredAlert = (ord) => {
+      if (!ord?.id) return;
+      if (isOrderRead(ord.id, 'entregado')) return;
+
+      const key = `entregado-${ord.id}`;
+      if (alertedEventsRef.current.has(key)) return;
+      alertedEventsRef.current.add(key);
+      knownOrdersRef.current.set(ord.id, 'entregado');
+
+      playOrderDeliveredSound();
+
+      const shortId = ord.id.slice(0, 8);
+      const clientName = (ord.profiles?.nombre_completo) || (Array.isArray(ord.profiles) ? ord.profiles[0]?.nombre_completo : null) || 'Cliente';
+      const toastId = `toast-db-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+
+      // Píldora de alerta en el header superior derecho
+      setActiveAlertPill({
+        tipo: 'entregado',
+        title: `¡Pedido Entregado! #${shortId} (${clientName})`,
+        total: ord.total_usd,
+        orderId: ord.id
+      });
+
+      // Notificación persistente
+      setAlertNotifications(prev => [
+        {
+          id: `notif-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          tipo: 'entregado',
+          title: `Pedido Entregado #${shortId}`,
+          desc: `Entregado a ${clientName} · Total: $${Number(ord.total_usd || 0).toFixed(2)} USD`,
+          total: ord.total_usd,
+          clientName,
+          orderId: ord.id,
+          pedido: ord,
+          timestamp: new Date().toISOString(),
+          unread: true
+        },
+        ...prev.filter(n => !(n.orderId === ord.id && n.tipo === 'entregado'))
+      ]);
+
+      setAlertToasts(prev => [
+        {
+          id: toastId,
+          tipo: 'entregado',
+          title: `¡Pedido Entregado con Éxito! #${shortId}`,
+          desc: `El pedido de ${clientName} ha sido entregado correctamente.`,
+          total: ord.total_usd,
+          orderId: ord.id,
+          pedido: ord,
+          timestamp: new Date().toISOString()
+        },
+        ...prev.slice(0, 2)
+      ]);
+
+      triggerDesktopNotification({
+        title: `✅ ¡Pedido Entregado! (#${shortId})`,
+        body: `El pedido de ${clientName} fue entregado con éxito.`,
+        onClick: () => {
+          handleMarkItemAsRead(ord.id, 'entregado');
+          localStorage.setItem('levant_comercio_selected_order', ord.id);
+          onGoToProfile?.();
+        }
+      });
+
+      setTimeout(() => {
+        setAlertToasts(prev => prev.filter(t => t.id !== toastId));
+      }, 8000);
+
+      fetchData(true);
+    };
+
+    const channel = supabase
+      .channel(`comercio-db-rt-${comercio.id}`)
+      .on('postgres_changes', {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'pedidos_entregas',
+        filter: `comercio_id=eq.${comercio.id}`
+      }, async (payload) => {
+        if (!isMounted || !payload.new) return;
+        if (isOrderRead(payload.new.id, 'nuevo')) return;
+        const { data: full } = await supabase
+          .from('pedidos_entregas')
+          .select('id, estado, total_usd, direccion_entrega, profiles(nombre_completo)')
+          .eq('id', payload.new.id)
+          .maybeSingle();
+        triggerNewOrderAlert(full || payload.new);
+      })
+      .on('postgres_changes', {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'pedidos_entregas',
+        filter: `comercio_id=eq.${comercio.id}`
+      }, async (payload) => {
+        if (!isMounted || !payload.new) return;
+        const newRow = payload.new;
+        const prev = knownOrdersRef.current.get(newRow.id);
+        const isEntregado = newRow.estado === 'entregado' || newRow.confirmacion_cliente === true;
+        if (isEntregado && prev !== 'entregado') {
+          if (isOrderRead(newRow.id, 'entregado')) return;
+          const { data: full } = await supabase
+            .from('pedidos_entregas')
+            .select('id, estado, total_usd, direccion_entrega, profiles(nombre_completo)')
+            .eq('id', newRow.id)
+            .maybeSingle();
+          triggerDeliveredAlert(full || newRow);
+        } else {
+          knownOrdersRef.current.set(newRow.id, newRow.estado);
+          fetchData(true);
+        }
+      })
+      .subscribe();
+
+    const interval = setInterval(async () => {
+      if (!isMounted || !comercio?.id || !initialLoadedRef.current) return;
+      try {
+        const { data: latest } = await supabase
+          .from('pedidos_entregas')
+          .select('id, estado, total_usd, direccion_entrega, confirmacion_cliente, profiles(nombre_completo)')
+          .eq('comercio_id', comercio.id)
+          .order('created_at', { ascending: false })
+          .limit(20);
+
+        if (!isMounted || !latest) return;
+        for (const ord of latest) {
+          const prev = knownOrdersRef.current.get(ord.id);
+          const isEntregado = ord.estado === 'entregado' || ord.confirmacion_cliente === true;
+          if (prev === undefined) {
+            if (!isOrderRead(ord.id, 'nuevo')) {
+              triggerNewOrderAlert(ord);
+            } else {
+              knownOrdersRef.current.set(ord.id, ord.estado);
+            }
+          } else if (isEntregado && prev !== 'entregado') {
+            if (!isOrderRead(ord.id, 'entregado')) {
+              triggerDeliveredAlert(ord);
+            } else {
+              knownOrdersRef.current.set(ord.id, 'entregado');
+            }
+          } else {
+            knownOrdersRef.current.set(ord.id, ord.estado);
+          }
+        }
+      } catch (err) {
+        console.warn('Error sondeo dashboard comercio:', err);
+      }
+    }, 4000);
+
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+      supabase.removeChannel(channel);
+    };
+  }, [comercio?.id]);
+
+  // Filtrar por fecha seleccionada
+  const pedidosFecha = pedidos.filter(p => p.created_at?.slice(0, 10) === selectedDate);
+
+  // ── Top Productos Más Vendidos ───────────────────────────────
+  const topProductosVendidos = useMemo(() => {
+    const targetPedidos = topComercioScope === 'fecha' ? pedidosFecha : pedidos;
+    const map = new Map();
+
+    targetPedidos.forEach(p => {
+      if (p.estado === 'cancelado') return;
+      (p.pedido_items || []).forEach(item => {
+        const prod = item.productos;
+        const nombre = prod?.nombre || 'Producto';
+        const key = prod?.id || nombre;
+        const cant = Number(item.cantidad) || 1;
+        const precio = Number(item.precio_usd) || Number(prod?.precio_usd) || 0;
+        const subtotal = Number(item.subtotal_usd) || (cant * precio);
+        const img = prod?.imagen_url || null;
+
+        if (!map.has(key)) {
+          map.set(key, {
+            id: key,
+            nombre,
+            precio,
+            imagen_url: img,
+            totalVendidos: 0,
+            totalIngresos: 0,
+            pedidosCount: 0,
+          });
+        }
+        const entry = map.get(key);
+        entry.totalVendidos += cant;
+        entry.totalIngresos += subtotal;
+        entry.pedidosCount += 1;
+        if (!entry.imagen_url && img) entry.imagen_url = img;
+      });
+    });
+
+    return Array.from(map.values())
+      .sort((a, b) => b.totalVendidos - a.totalVendidos || b.totalIngresos - a.totalIngresos);
+  }, [pedidos, pedidosFecha, topComercioScope]);
+
+  const maxVendidos = topProductosVendidos[0]?.totalVendidos || 1;
 
   if (loading) return <div className="db-loading"><span className="db-spinner" /></div>;
   if (!comercio) return (
@@ -748,63 +1781,94 @@ function DashboardComercio({ session, onSignOut, onGoToProfile, registeredRol, c
     </div>
   );
 
-  // KPIs
-  const entregados    = pedidos.filter(p => p.estado === 'entregado');
-  const ingresos      = entregados.reduce((a, p) => a + Number(p.total_usd), 0);
-  const cancelados    = pedidos.filter(p => p.estado === 'cancelado').length;
-  const prodActivos   = productos.filter(p => p.activo).length;
+  // KPIs del día
+  const totalFecha      = pedidosFecha.length;
+  const entregadosFecha = pedidosFecha.filter(p => p.estado === 'entregado');
+  const ingresosFecha   = entregadosFecha.reduce((a, p) => a + Number(p.total_usd), 0);
+  const enProceso       = pedidosFecha.filter(p => ['pendiente', 'confirmado', 'en_preparacion', 'en_camino'].includes(p.estado)).length;
+  const canceladosFecha = pedidosFecha.filter(p => p.estado === 'cancelado').length;
+  const prodActivos     = productos.filter(p => p.activo).length;
 
-  // Gráfico 1: Pedidos por estado
-  const ESTADOS = ['pendiente', 'confirmado', 'en_preparacion', 'en_camino', 'entregado', 'cancelado'];
-  const ESTADO_LABEL = {
-    pendiente: 'Pendiente', confirmado: 'Confirm.', en_preparacion: 'Preparan.',
-    en_camino: 'En camino', entregado: 'Entregado', cancelado: 'Cancelado',
-  };
-  const byEstado = ESTADOS.map(e => ({
-    label: ESTADO_LABEL[e],
-    value: pedidos.filter(p => p.estado === e).length,
-    color: ESTADO_COLOR[e],
-  })).filter(d => d.value > 0);
+  // Filtro de estado sobre los pedidos del día
+  const filtrados = filter === 'todos'
+    ? pedidosFecha
+    : pedidosFecha.filter(p => p.estado === filter);
 
-  // Gráfico 2: Ingresos mensuales (últimos 6 meses)
-  const months = lastNMonths(6);
-  const ingresosMensual = months.map(m => ({
-    label: m.label,
-    value: entregados
-      .filter(p => p.created_at.startsWith(m.key))
-      .reduce((a, p) => a + Number(p.total_usd), 0),
-    color: COLORS.green,
-  }));
+  const isToday = selectedDate === localToday;
+  const dateLabel = isToday
+    ? new Date().toLocaleDateString('es-VE', { weekday: 'long', day: 'numeric', month: 'long' })
+    : new Date(selectedDate + 'T12:00:00').toLocaleDateString('es-VE', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
 
-  // Gráfico 3: Top 8 productos más vendidos
-  const topProductos = [...productos]
-    .sort((a, b) => b.vendidos - a.vendidos)
-    .slice(0, 8)
-    .map((p, i) => ({
-      label: p.nombre.length > 12 ? p.nombre.slice(0, 10) + '…' : p.nombre,
-      value: p.vendidos,
-      color: Object.values(COLORS)[i % Object.values(COLORS).length],
-    }));
-
-  // Gráfico 4: Stock por producto (top 8 con menor stock)
-  const stockBajo = [...productos]
-    .filter(p => p.activo)
-    .sort((a, b) => a.stock - b.stock)
-    .slice(0, 8)
-    .map(p => ({
-      label: p.nombre.length > 12 ? p.nombre.slice(0, 10) + '…' : p.nombre,
-      value: p.stock,
-      color: p.stock === 0 ? COLORS.red : p.stock < 5 ? COLORS.yellow : COLORS.cyan,
-    }));
+  const formatTime = (iso) => new Date(iso).toLocaleTimeString('es-VE', { hour: '2-digit', minute: '2-digit' });
 
   return (
     <div className="db-root">
+      {/* Alertas flotantes para comercio */}
+      <ComercioAlertToasts
+        toasts={alertToasts}
+        onDismiss={(id, orderId, tipo) => {
+          setAlertToasts((prev) => prev.filter((t) => t.id !== id));
+          if (orderId) {
+            handleMarkItemAsRead(orderId, tipo);
+          }
+        }}
+        onViewOrder={(ped, ordId, tipo) => {
+          const idToOpen = ped?.id || ordId;
+          if (idToOpen) {
+            handleMarkItemAsRead(idToOpen, tipo || ped?.tipo || 'nuevo');
+            localStorage.setItem('levant_comercio_selected_order', idToOpen);
+          }
+          onGoToProfile?.();
+        }}
+      />
+
+      {/* Hero */}
       <div className="db-hero">
         <div>
-          <h1 className="db-hero-title">{comercio.nombre_comercial}</h1>
-          <p className="db-hero-sub">Dashboard del comercio · {comercio.categoria}</p>
+          <h1 className="db-hero-title">🏪 {comercio.nombre_comercial}</h1>
+          <p className="db-hero-sub" style={{ textTransform: 'capitalize' }}>{dateLabel} · {comercio.categoria}</p>
         </div>
         <div className="db-hero-right">
+          {/* Píldora de Alerta en Vivo justo en este encabezado */}
+          {activeAlertPill && (
+            <div
+              className={`db-alert-hero-chip db-alert-hero-chip--${activeAlertPill.tipo}`}
+              onClick={() => {
+                if (activeAlertPill.orderId) {
+                  handleMarkItemAsRead(activeAlertPill.orderId, activeAlertPill.tipo);
+                  localStorage.setItem('levant_comercio_selected_order', activeAlertPill.orderId);
+                }
+                onGoToProfile?.();
+              }}
+              title="Clic para ver detalles del pedido (marcar como leído)"
+            >
+              <span className="db-alert-hero-pulse" />
+              <span className="db-alert-hero-icon">
+                {activeAlertPill.tipo === 'nuevo' ? '🛍️' : '✅'}
+              </span>
+              <span className="db-alert-hero-text">
+                <strong>{activeAlertPill.title || (activeAlertPill.tipo === 'nuevo' ? '¡Nuevo Pedido!' : '¡Pedido Entregado!')}</strong>
+                {activeAlertPill.total !== undefined && ` · $${Number(activeAlertPill.total).toFixed(2)}`}
+              </span>
+              <span className="db-alert-hero-cta">Ver →</span>
+              <button
+                type="button"
+                className="db-alert-hero-close"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (activeAlertPill?.orderId) {
+                    handleMarkItemAsRead(activeAlertPill.orderId, activeAlertPill.tipo);
+                  } else {
+                    setActiveAlertPill(null);
+                  }
+                }}
+                title="Cerrar y marcar como leída"
+              >
+                ✕
+              </button>
+            </div>
+          )}
+
           {registeredRol === 'comercio' ? (
             <div className="db-rol-toggle">
               <button
@@ -827,6 +1891,39 @@ function DashboardComercio({ session, onSignOut, onGoToProfile, registeredRol, c
           ) : (
             <span className="db-hero-badge db-hero-badge--comercio">🏪 Comercio</span>
           )}
+
+          {/* Campana de Notificaciones y Alertas de Comercio */}
+          <div className="db-hero-alerts-bell-wrap">
+            <ComercioAlertCenter
+              notifications={alertNotifications}
+              unreadCount={alertNotifications.length}
+              isOpen={showNotifCenter}
+              onToggleOpen={() => setShowNotifCenter((prev) => !prev)}
+              onClose={() => setShowNotifCenter(false)}
+              onMarkAllAsRead={handleMarkAllAsRead}
+              onMarkItemAsRead={handleMarkItemAsRead}
+              onClearHistory={handleMarkAllAsRead}
+              onViewOrder={(ped, ordId, tipo) => {
+                setShowNotifCenter(false);
+                const idToOpen = ped?.id || ordId;
+                if (idToOpen) {
+                  handleMarkItemAsRead(idToOpen, tipo || ped?.tipo || 'nuevo');
+                  localStorage.setItem('levant_comercio_selected_order', idToOpen);
+                }
+                onGoToProfile?.();
+              }}
+            />
+          </div>
+
+          <button
+            className="db-refresh-btn"
+            onClick={() => fetchData(true)}
+            disabled={refreshing}
+            aria-label="Actualizar"
+            title="Actualizar"
+          >
+            <span className={refreshing ? 'db-refresh-spin' : ''}>↻</span>
+          </button>
           <ProfileMenu
             session={session}
             onSignOut={onSignOut}
@@ -838,170 +1935,68 @@ function DashboardComercio({ session, onSignOut, onGoToProfile, registeredRol, c
         </div>
       </div>
 
+      {/* Selector de fecha */}
+      <div className="db-date-bar">
+        <div className="db-date-bar-left">
+          <span className="db-date-bar-icon">📅</span>
+          <span className="db-date-bar-label">
+            {isToday ? 'Hoy' : 'Fecha seleccionada'}
+          </span>
+          <input
+            type="date"
+            className="db-date-input"
+            value={selectedDate}
+            max={localToday}
+            onChange={e => { setSelectedDate(e.target.value); setFilter('todos'); setExpanded(null); }}
+          />
+        </div>
+        {!isToday && (
+          <button
+            className="db-date-today-btn"
+            onClick={() => { setSelectedDate(localToday); setFilter('todos'); setExpanded(null); }}
+          >
+            ↩ Volver a hoy
+          </button>
+        )}
+      </div>
+
+      {/* KPIs del día */}
       <div className="db-kpis">
         <KpiCard
           icon={BoxIcon}
-          tag="Pedidos"
-          label="Total pedidos"
-          value={pedidos.length}
+          tag={isToday ? 'Hoy' : 'Ese día'}
+          label="Órdenes recibidas"
+          value={totalFecha}
           color="#f59e0b"
-          sub="Historial del comercio"
-          onClick={() => setSelectedKpi({
-            icon: BoxIcon,
-            tag: 'Pedidos',
-            label: 'Total pedidos',
-            value: pedidos.length,
-            color: '#f59e0b',
-            iconBg: '#38281a',
-            title: 'Resumen de Pedidos del Comercio',
-            subtitle: 'Distribución operativa de las órdenes recibidas',
-            metrics: [
-              { label: 'Entregados con éxito', value: entregados.length, color: '#10b981', sub: `${pedidos.length ? Math.round((entregados.length / pedidos.length) * 100) : 0}% efectividad` },
-              { label: 'Activos en curso', value: pedidos.filter(p => ['pendiente', 'confirmado', 'en_preparacion', 'en_camino'].includes(p.estado)).length, color: '#3b82f6', sub: 'En preparación/ruta' },
-              { label: 'Cancelados', value: cancelados, color: '#f87171', sub: 'No concretados' },
-              { label: 'Total facturado', value: `$${fmt(ingresos)}`, color: '#f59e0b', sub: 'En órdenes entregadas' },
-            ],
-            breakdownTitle: 'Distribución de Órdenes por Estado',
-            breakdown: ESTADOS.map(e => {
-              const count = pedidos.filter(p => p.estado === e).length;
-              return {
-                label: ESTADO_LABEL[e],
-                value: `${count} pedido${count === 1 ? '' : 's'}`,
-                percent: pedidos.length ? Math.round((count / pedidos.length) * 100) : 0,
-                color: ESTADO_COLOR[e],
-              };
-            }).filter(b => b.percent > 0),
-            itemsTitle: 'Últimos pedidos recibidos',
-            items: pedidos.slice(0, 4).map(p => ({
-              title: `Orden #${p.id.slice(0, 8)}`,
-              sub: formatDate(p.created_at),
-              badge: `$${fmt(p.total_usd)} · ${ESTADO_LABEL[p.estado] || p.estado}`,
-              badgeBg: `${ESTADO_COLOR[p.estado] || '#6c63ff'}22`,
-              badgeColor: ESTADO_COLOR[p.estado] || '#a5b4fc',
-            })),
-            tip: 'Mantener tiempos de confirmación y preparación ágiles maximiza las valoraciones positivas de tus clientes.',
-          })}
+          sub={totalFecha === 0 ? 'Sin órdenes ese día' : `${totalFecha} orden${totalFecha !== 1 ? 'es' : ''} recibidas`}
         />
-
         <KpiCard
           icon={DollarIcon}
-          tag="Ventas"
-          label="Ingresos USD"
-          value={`$${fmt(ingresos)}`}
+          tag="Ingresos"
+          label="Facturado del día"
+          value={`$${fmt(ingresosFecha)}`}
           color="#10b981"
           iconBg="#192820"
-          sub="Total liquidado"
-          onClick={() => setSelectedKpi({
-            icon: DollarIcon,
-            tag: 'Ventas',
-            label: 'Ingresos USD',
-            value: `$${fmt(ingresos)}`,
-            color: '#10b981',
-            iconBg: '#192820',
-            title: 'Resumen de Facturación y Ventas',
-            subtitle: 'Balance monetario generado por pedidos entregados',
-            metrics: [
-              { label: 'Total facturado', value: `$${fmt(ingresos)}`, color: '#10b981', sub: 'En órdenes entregadas' },
-              { label: 'Ticket promedio', value: `$${fmt(entregados.length ? ingresos / entregados.length : 0)}`, color: '#3b82f6', sub: 'Por orden despachada' },
-              { label: 'Órdenes completadas', value: entregados.length, color: '#06b6d4', sub: 'Despachos exitosos' },
-              { label: 'Productos con venta', value: productos.filter(p => p.vendidos > 0).length, color: '#f59e0b', sub: 'Del catálogo' },
-            ],
-            breakdownTitle: 'Top Productos por Recaudación USD',
-            breakdown: [...productos]
-              .sort((a, b) => b.ingresos - a.ingresos)
-              .slice(0, 5)
-              .map((pr, idx) => ({
-                label: pr.nombre,
-                value: `$${fmt(pr.ingresos)} (${pr.vendidos} u.)`,
-                percent: ingresos ? Math.round((pr.ingresos / ingresos) * 100) : 0,
-                color: Object.values(COLORS)[idx % Object.values(COLORS).length],
-              }))
-              .filter(b => b.percent > 0),
-            itemsTitle: 'Productos más rentables',
-            items: [...productos].sort((a, b) => b.ingresos - a.ingresos).slice(0, 4).map(pr => ({
-              title: pr.nombre,
-              sub: `${pr.vendidos} unidades vendidas`,
-              badge: `$${fmt(pr.ingresos)}`,
-              badgeBg: 'rgba(16, 185, 129, 0.15)',
-              badgeColor: '#6ee7b7',
-            })),
-            tip: 'Los ingresos reflejan únicamente las órdenes liquidadas con entrega confirmada.',
-          })}
+          sub={entregadosFecha.length > 0 ? `${entregadosFecha.length} pedido${entregadosFecha.length !== 1 ? 's' : ''} entregado${entregadosFecha.length !== 1 ? 's' : ''}` : 'Sin entregas'}
         />
-
         <KpiCard
-          icon={CheckCircleIcon}
-          tag="Completados"
-          label="Entregados"
-          value={entregados.length}
-          color="#3b82f6"
-          iconBg="#1a2233"
-          sub="Pedidos despachados"
-          onClick={() => setSelectedKpi({
-            icon: CheckCircleIcon,
-            tag: 'Completados',
-            label: 'Entregados',
-            value: entregados.length,
-            color: '#3b82f6',
-            iconBg: '#1a2233',
-            title: 'Resumen de Pedidos Despachados',
-            subtitle: 'Órdenes procesadas y entregadas a los compradores',
-            metrics: [
-              { label: 'Total completados', value: entregados.length, color: '#3b82f6', sub: 'Entregados con éxito' },
-              { label: 'Tasa de cumplimiento', value: `${pedidos.length ? Math.round((entregados.length / pedidos.length) * 100) : 0}%`, color: '#10b981', sub: 'De todos los pedidos' },
-              { label: 'Total recaudado', value: `$${fmt(ingresos)}`, color: '#f59e0b', sub: 'En USD' },
-              { label: 'Promedio por entrega', value: `$${fmt(entregados.length ? ingresos / entregados.length : 0)}`, color: '#06b6d4', sub: 'Por despacho' },
-            ],
-            itemsTitle: 'Últimas entregas completadas',
-            items: entregados.slice(0, 4).map(p => ({
-              title: `Orden #${p.id.slice(0, 8)}`,
-              sub: formatDate(p.created_at),
-              badge: `$${fmt(p.total_usd)} · Entregado`,
-              badgeBg: 'rgba(59, 130, 246, 0.15)',
-              badgeColor: '#93c5fd',
-            })),
-            tip: 'Una tasa alta de pedidos completados asegura que tu comercio gane preferencia entre los usuarios.',
-          })}
+          icon={WrenchIcon}
+          tag="En proceso"
+          label="Activos ahora"
+          value={enProceso}
+          color="#818cf8"
+          iconBg="#1a1a2e"
+          sub={enProceso > 0 ? 'Órdenes en preparación/ruta' : 'Sin órdenes activas'}
         />
-
         <KpiCard
           icon={CloseIcon}
           tag="Alertas"
           label="Cancelados"
-          value={cancelados}
+          value={canceladosFecha}
           color="#f87171"
           iconBg="#2a1818"
-          sub="Pedidos no concretados"
-          onClick={() => {
-            const perdidaEst = pedidos.filter(p => p.estado === 'cancelado').reduce((a, p) => a + Number(p.total_usd || 0), 0);
-            setSelectedKpi({
-              icon: CloseIcon,
-              tag: 'Alertas',
-              label: 'Cancelados',
-              value: cancelados,
-              color: '#f87171',
-              iconBg: '#2a1818',
-              title: 'Resumen de Pedidos Cancelados',
-              subtitle: 'Análisis de pedidos no concretados o dados de baja',
-              metrics: [
-                { label: 'Total cancelados', value: cancelados, color: '#f87171', sub: 'Órdenes canceladas' },
-                { label: 'Tasa de cancelación', value: `${pedidos.length ? Math.round((cancelados / pedidos.length) * 100) : 0}%`, color: '#f59e0b', sub: 'Sobre el total' },
-                { label: 'Ventas no concretadas', value: `$${fmt(perdidaEst)}`, color: '#ef4444', sub: 'USD estimado' },
-                { label: 'Órdenes exitosas', value: entregados.length, color: '#10b981', sub: 'Completadas' },
-              ],
-              itemsTitle: 'Órdenes canceladas recientes',
-              items: pedidos.filter(p => p.estado === 'cancelado').slice(0, 4).map(p => ({
-                title: `Orden #${p.id.slice(0, 8)}`,
-                sub: formatDate(p.created_at),
-                badge: `$${fmt(p.total_usd)} · Cancelado`,
-                badgeBg: 'rgba(248, 113, 113, 0.15)',
-                badgeColor: '#fca5a5',
-              })),
-              tip: 'Mantener actualizado el stock de productos previene cancelaciones por quiebre de inventario.',
-            });
-          }}
+          sub={canceladosFecha > 0 ? 'Órdenes no concretadas' : 'Sin cancelaciones ✓'}
         />
-
         <KpiCard
           icon={ShoppingBagIcon}
           tag="Inventario"
@@ -1009,66 +2004,305 @@ function DashboardComercio({ session, onSignOut, onGoToProfile, registeredRol, c
           value={prodActivos}
           color="#06b6d4"
           iconBg="#14262c"
-          sub="Disponibles en catálogo"
-          onClick={() => setSelectedKpi({
-            icon: ShoppingBagIcon,
-            tag: 'Inventario',
-            label: 'Productos activos',
-            value: prodActivos,
-            color: '#06b6d4',
-            iconBg: '#14262c',
-            title: 'Resumen de Inventario y Catálogo',
-            subtitle: 'Estado del catálogo y alertas de stock de productos',
-            metrics: [
-              { label: 'Activos en catálogo', value: prodActivos, color: '#06b6d4', sub: `De ${productos.length} totales` },
-              { label: 'Pausados / Inactivos', value: productos.filter(p => !p.activo).length, color: '#64748b', sub: 'No visibles' },
-              { label: 'Stock crítico (< 5 u.)', value: productos.filter(p => p.activo && p.stock < 5).length, color: '#f59e0b', sub: 'Por agotarse' },
-              { label: 'Agotados (0 stock)', value: productos.filter(p => p.activo && p.stock === 0).length, color: '#f87171', sub: 'Sin existencias' },
-            ],
-            breakdownTitle: 'Distribución del Stock Activo',
-            breakdown: [
-              { label: 'Stock Normal (≥ 5)', value: `${productos.filter(p => p.activo && p.stock >= 5).length} productos`, percent: prodActivos ? Math.round((productos.filter(p => p.activo && p.stock >= 5).length / prodActivos) * 100) : 0, color: '#10b981' },
-              { label: 'Stock Bajo (1 a 4)', value: `${productos.filter(p => p.activo && p.stock > 0 && p.stock < 5).length} productos`, percent: prodActivos ? Math.round((productos.filter(p => p.activo && p.stock > 0 && p.stock < 5).length / prodActivos) * 100) : 0, color: '#f59e0b' },
-              { label: 'Agotados (0 unidades)', value: `${productos.filter(p => p.activo && p.stock === 0).length} productos`, percent: prodActivos ? Math.round((productos.filter(p => p.activo && p.stock === 0).length / prodActivos) * 100) : 0, color: '#f87171' },
-            ].filter(b => b.percent > 0),
-            itemsTitle: 'Productos con menor disponibilidad',
-            items: stockBajo.slice(0, 4).map(p => ({
-              title: p.label,
-              sub: `Stock actual: ${p.value} unidades`,
-              badge: p.value === 0 ? 'AGOTADO' : `${p.value} u. restantes`,
-              badgeBg: p.value === 0 ? 'rgba(248, 113, 113, 0.15)' : 'rgba(245, 158, 11, 0.15)',
-              badgeColor: p.value === 0 ? '#f87171' : '#f59e0b',
-            })),
-            tip: 'Puedes gestionar el stock, precios y activación directamente desde el panel de comercio.',
-          })}
+          sub={`De ${productos.length} totales en catálogo`}
         />
       </div>
 
-      <div className="db-grid-2">
-        <Section title="Pedidos por Estado" subtitle="Todos los pedidos del comercio">
-          {byEstado.length ? <BarChart data={byEstado} /> : <p className="db-empty">Sin pedidos aún</p>}
-        </Section>
+      {/* ═══ TOP PRODUCTOS MÁS VENDIDOS ═══ */}
+      <div className="db-top-section db-top-section--comercio">
+        <div className="db-top-header">
+          <div className="db-top-header-left">
+            <div className="db-top-badge-title">
+              <span className="db-top-header-icon">🔥</span>
+              <h2 className="db-top-title">Top Productos Más Vendidos</h2>
+            </div>
+            <p className="db-top-sub">
+              Ranking de tus artículos más demandados y mayor volumen de facturación
+            </p>
+          </div>
+          <div className="db-top-header-right">
+            <div className="db-top-scope-toggle">
+              <button
+                type="button"
+                className={`db-top-scope-btn ${topComercioScope === 'todo' ? 'db-top-scope-btn--active' : ''}`}
+                onClick={() => setTopComercioScope('todo')}
+              >
+                Histórico General
+              </button>
+              <button
+                type="button"
+                className={`db-top-scope-btn ${topComercioScope === 'fecha' ? 'db-top-scope-btn--active' : ''}`}
+                onClick={() => setTopComercioScope('fecha')}
+              >
+                {isToday ? 'Ventas de Hoy' : 'Fecha Seleccionada'}
+              </button>
+            </div>
+          </div>
+        </div>
 
-        <Section title="Ingresos Mensuales" subtitle="Últimos 6 meses (USD)">
-          <BarChart data={ingresosMensual} valuePrefix="$" />
-        </Section>
+        {topProductosVendidos.length === 0 ? (
+          <div className="db-top-empty">
+            <span className="db-top-empty-icon">📊</span>
+            <div>
+              <h4 className="db-top-empty-title">
+                {topComercioScope === 'fecha'
+                  ? 'Sin productos vendidos en esta fecha'
+                  : 'Aún no se registran ventas de productos'}
+              </h4>
+              <p className="db-top-empty-desc">
+                {topComercioScope === 'fecha'
+                  ? 'Selecciona "Histórico General" o revisa tus órdenes completadas.'
+                  : 'Cuando los clientes compren en tu tienda, tus productos con mayor rotación se clasificarán automáticamente aquí.'}
+              </p>
+            </div>
+          </div>
+        ) : (
+          <div className="db-top-grid">
+            {(showAllTopComercio ? topProductosVendidos : topProductosVendidos.slice(0, 5)).map((prod, idx) => {
+              const rank = idx + 1;
+              const isFirst = rank === 1;
+              const isSecond = rank === 2;
+              const isThird = rank === 3;
+              const pct = Math.round((prod.totalVendidos / maxVendidos) * 100);
+
+              return (
+                <div
+                  key={prod.id || idx}
+                  className={`db-top-card ${isFirst ? 'db-top-card--first' : ''} ${isSecond ? 'db-top-card--second' : ''} ${isThird ? 'db-top-card--third' : ''}`}
+                >
+                  <div className="db-top-card-rank-wrap">
+                    {isFirst && (
+                      <span className="db-top-rank-badge db-top-rank-badge--gold">
+                        👑 #1 Más Vendido
+                      </span>
+                    )}
+                    {isSecond && (
+                      <span className="db-top-rank-badge db-top-rank-badge--silver">
+                        🥈 #2 En Ventas
+                      </span>
+                    )}
+                    {isThird && (
+                      <span className="db-top-rank-badge db-top-rank-badge--bronze">
+                        🥉 #3 En Ventas
+                      </span>
+                    )}
+                    {!isFirst && !isSecond && !isThird && (
+                      <span className="db-top-rank-badge db-top-rank-badge--default">
+                        #{rank}
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="db-top-card-content">
+                    <div className="db-top-img-wrap">
+                      {prod.imagen_url ? (
+                        <img src={prod.imagen_url} alt={prod.nombre} className="db-top-img" />
+                      ) : (
+                        <div className="db-top-img-fallback">
+                          <span>📦</span>
+                        </div>
+                      )}
+                      {isFirst && <span className="db-top-first-glow" />}
+                    </div>
+
+                    <div className="db-top-card-info">
+                      <div className="db-top-card-main-meta">
+                        <h3 className="db-top-prod-name" title={prod.nombre}>
+                          {prod.nombre}
+                        </h3>
+                        <span className="db-top-revenue-highlight">
+                          ${prod.totalIngresos.toFixed(2)} USD generados
+                        </span>
+                      </div>
+
+                      <div className="db-top-stats-row">
+                        <div className="db-top-stat-chip db-top-stat-chip--qty-comercio">
+                          <span className="db-top-stat-val">{prod.totalVendidos}</span>
+                          <span className="db-top-stat-lbl">
+                            {prod.totalVendidos === 1 ? 'ud. vendida' : 'uds. vendidas'}
+                          </span>
+                        </div>
+                        <div className="db-top-stat-chip db-top-stat-chip--spent">
+                          <span className="db-top-stat-val">${prod.totalIngresos.toFixed(2)}</span>
+                          <span className="db-top-stat-lbl">ingresos</span>
+                        </div>
+                        <div className="db-top-stat-chip db-top-stat-chip--orders">
+                          <span className="db-top-stat-val">{prod.pedidosCount}</span>
+                          <span className="db-top-stat-lbl">
+                            {prod.pedidosCount === 1 ? 'pedido' : 'pedidos'}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="db-top-progress-wrap" title={`Volumen de ventas: ${pct}% respecto al producto estrella`}>
+                        <div className="db-top-progress-bg">
+                          <div
+                            className="db-top-progress-fill db-top-progress-fill--comercio"
+                            style={{ width: `${Math.max(pct, 8)}%` }}
+                          />
+                        </div>
+                        <span className="db-top-progress-lbl">{pct}%</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {topProductosVendidos.length > 5 && (
+          <div className="db-top-footer-toggle">
+            <button
+              type="button"
+              className="db-top-toggle-more-btn"
+              onClick={() => setShowAllTopComercio(prev => !prev)}
+            >
+              {showAllTopComercio
+                ? '▲ Ver menos'
+                : `▼ Ver ranking completo (${topProductosVendidos.length} productos)`}
+            </button>
+          </div>
+        )}
       </div>
 
-      <div className="db-grid-2">
-        <Section title="Productos Más Vendidos" subtitle="Unidades vendidas (pedidos entregados)">
-          {topProductos.some(d => d.value > 0)
-            ? <BarChart data={topProductos} />
-            : <p className="db-empty">Sin ventas registradas aún</p>}
-        </Section>
+      {/* Lista de pedidos del día */}
+      <div className="db-section">
+        <div className="db-section-header">
+          <h2 className="db-section-title">
+            {isToday ? 'Órdenes de hoy' : 'Órdenes del día'}
+          </h2>
+          <p className="db-section-sub">
+            {totalFecha === 0 ? 'No hubo órdenes este día' : `${totalFecha} orden${totalFecha !== 1 ? 'es' : ''} registradas`}
+          </p>
+        </div>
 
-        <Section title="Alerta de Stock" subtitle="Productos activos con menor stock">
-          {stockBajo.length
-            ? <BarChart data={stockBajo} valueSuffix=" u." />
-            : <p className="db-empty">Sin productos activos</p>}
-        </Section>
+        {/* Filtros */}
+        <div className="db-day-filters" role="tablist">
+          {ESTADOS_FILTER.map(f => (
+            <button
+              key={f}
+              id={`db-com-filter-${f}`}
+              role="tab"
+              aria-selected={filter === f}
+              className={`db-day-filter-btn ${filter === f ? 'db-day-filter-btn--active' : ''}`}
+              onClick={() => setFilter(f)}
+            >
+              {f === 'todos' ? '🗂 Todos' : ESTADO_LABEL[f]}
+            </button>
+          ))}
+        </div>
+
+        {/* Lista */}
+        {filtrados.length === 0 ? (
+          <div className="db-day-empty">
+            <span>📋</span>
+            <p>
+              {totalFecha === 0
+                ? 'No se registraron órdenes en esta fecha.'
+                : `No hay órdenes con estado "${ESTADO_LABEL[filter] || filter}" en este período.`
+              }
+            </p>
+          </div>
+        ) : (
+          <div className="db-day-list">
+            {filtrados.map(pedido => {
+              const isOpen     = expanded === pedido.id;
+              const tienePago  = pedido.reportes_pago?.length > 0;
+              const badgeColor = ESTADO_COLOR[pedido.estado] || '#64748b';
+              const badgeLabel = ESTADO_LABEL[pedido.estado] || pedido.estado;
+
+              return (
+                <div key={pedido.id} className={`db-day-card ${isOpen ? 'db-day-card--open' : ''}`}>
+                  {/* Cabecera */}
+                  <button
+                    className="db-day-card-header"
+                    onClick={() => setExpanded(prev => prev === pedido.id ? null : pedido.id)}
+                    aria-expanded={isOpen}
+                  >
+                    <div className="db-day-card-left">
+                      <span
+                        className="db-day-badge"
+                        style={{ background: `${badgeColor}22`, color: badgeColor, border: `1px solid ${badgeColor}44` }}
+                      >
+                        {badgeLabel}
+                      </span>
+                      <span className={`db-day-badge-pago ${tienePago ? 'db-day-badge-pago--pagado' : 'db-day-badge-pago--pendiente'}`}>
+                        {tienePago ? '✅ Pago reportado' : '⏳ Sin pago'}
+                      </span>
+                      <div>
+                        <p className="db-day-comercio">
+                          {pedido.profiles?.nombre_completo ?? `Orden #${pedido.id.slice(0, 8)}`}
+                        </p>
+                        <p className="db-day-time">{formatTime(pedido.created_at)}</p>
+                      </div>
+                    </div>
+                    <div className="db-day-card-right">
+                      <span className="db-day-total">${pedido.total_usd?.toFixed(2)}</span>
+                      <span className={`db-day-chevron ${isOpen ? 'db-day-chevron--up' : ''}`}>›</span>
+                    </div>
+                  </button>
+
+                  {/* Detalle expandido */}
+                  {isOpen && (
+                    <div className="db-day-card-body">
+                      {/* Items del pedido */}
+                      {(pedido.pedido_items ?? []).length > 0 && (
+                        <div className="db-day-items">
+                          {pedido.pedido_items.map((item, i) => (
+                            <div key={i} className="db-day-item-row">
+                              {item.productos?.imagen_url && (
+                                <img src={item.productos.imagen_url} alt={item.productos?.nombre} className="db-day-item-img" />
+                              )}
+                              <span className="db-day-item-name">{item.productos?.nombre ?? '—'}</span>
+                              <span className="db-day-item-qty">x{item.cantidad}</span>
+                              <span className="db-day-item-sub">${item.subtotal_usd?.toFixed(2)}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Meta info */}
+                      <div className="db-day-meta">
+                        {pedido.direccion_entrega && (
+                          <div className="db-day-meta-row">
+                            <span className="db-day-meta-label">📍 Dirección</span>
+                            <span>{pedido.direccion_entrega}</span>
+                          </div>
+                        )}
+                        {pedido.repartidores_datos?.profiles?.nombre_completo && (
+                          <div className="db-day-meta-row">
+                            <span className="db-day-meta-label">🛵 Repartidor</span>
+                            <span>{pedido.repartidores_datos.profiles.nombre_completo}</span>
+                          </div>
+                        )}
+                        <div className="db-day-meta-row">
+                          <span className="db-day-meta-label">💳 Pago</span>
+                          {tienePago ? (
+                            <span>
+                              {pedido.reportes_pago[0].metodo?.replace(/_/g, ' ')} —
+                              Ref: {pedido.reportes_pago[0].referencia} —{' '}
+                              <span style={{ color: pedido.reportes_pago[0].estado === 'verificado' ? '#10b981' : '#f59e0b' }}>
+                                {pedido.reportes_pago[0].estado}
+                              </span>
+                            </span>
+                          ) : (
+                            <span style={{ color: '#f87171' }}>Sin reporte de pago</span>
+                          )}
+                        </div>
+                        <div className="db-day-meta-row">
+                          <span className="db-day-meta-label">💰 Total</span>
+                          <span style={{ color: '#10b981', fontWeight: 700 }}>${pedido.total_usd?.toFixed(2)} USD</span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
-
-      <KpiDetailModal kpi={selectedKpi} onClose={() => setSelectedKpi(null)} />
     </div>
   );
 }
@@ -1076,35 +2310,153 @@ function DashboardComercio({ session, onSignOut, onGoToProfile, registeredRol, c
 // ════════════════════════════════════════════════════
 // DASHBOARD REPARTIDOR
 // ════════════════════════════════════════════════════
-function DashboardRepartidor({ session, onSignOut, onGoToProfile, registeredRol, currentRol, onSwitchMode }) {
+function DashboardRepartidor({ session, onSignOut, onGoToProfile, registeredRol, currentRol, onSwitchMode, onGoToPedidos, onGoToHistorial }) {
   const [pedidos, setPedidos]       = useState([]);
   const [repartidor, setRepartidor] = useState(null);
   const [loading, setLoading]       = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [selectedKpi, setSelectedKpi] = useState(null);
+  const [repNotifications, setRepNotifications] = useState([]);
+  const [showRepNotifCenter, setShowRepNotifCenter] = useState(false);
+  const [activeAlertPill, setActiveAlertPill] = useState(null);
+  const [filterOrders, setFilterOrders] = useState('todos');
+  const [expandedOrderId, setExpandedOrderId] = useState(null);
+  const [searchOrders, setSearchOrders] = useState('');
+
+  async function load(isRefresh = false) {
+    if (isRefresh) setRefreshing(true);
+    else setLoading(true);
+
+    const { data: rep } = await supabase
+      .from('repartidores_datos')
+      .select('id, vehiculo, disponible')
+      .eq('profile_id', session.user.id)
+      .single();
+
+    if (!rep) { setLoading(false); setRefreshing(false); return; }
+    setRepartidor(rep);
+
+    const { data: p } = await supabase
+      .from('pedidos_entregas')
+      .select(`
+        id, estado, total_usd, created_at, updated_at, valoracion, comentario, direccion_entrega,
+        comercios_datos ( id, nombre_comercial, direccion, logo_url ),
+        profiles!pedidos_entregas_cliente_id_fkey ( id, nombre_completo, telefono ),
+        pedido_items (
+          id, cantidad, precio_usd, subtotal_usd,
+          productos ( id, nombre, imagen_url )
+        )
+      `)
+      .eq('repartidor_id', rep.id)
+      .order('created_at', { ascending: false });
+
+    setPedidos(p ?? []);
+    setLoading(false);
+    setRefreshing(false);
+  }
 
   useEffect(() => {
-    async function load() {
-      setLoading(true);
-      const { data: rep } = await supabase
-        .from('repartidores_datos')
-        .select('id, vehiculo, disponible')
-        .eq('profile_id', session.user.id)
-        .single();
-
-      if (!rep) { setLoading(false); return; }
-      setRepartidor(rep);
-
-      const { data: p } = await supabase
-        .from('pedidos_entregas')
-        .select('id, estado, total_usd, created_at, valoracion')
-        .eq('repartidor_id', rep.id)
-        .order('created_at', { ascending: false });
-
-      setPedidos(p ?? []);
-      setLoading(false);
-    }
     load();
   }, [session]);
+
+  // Escuchar evento de alerta en tiempo real para refrescar
+  useEffect(() => {
+    const handleRepAlert = () => {
+      load(true);
+    };
+    window.addEventListener('levant_repartidor_alert_event', handleRepAlert);
+    return () => window.removeEventListener('levant_repartidor_alert_event', handleRepAlert);
+  }, []);
+
+  // Sincronizar notificaciones de repartidor
+  useEffect(() => {
+    if (!pedidos || pedidos.length === 0) {
+      setRepNotifications([]);
+      setActiveAlertPill(null);
+      return;
+    }
+
+    const readIds = getRepartidorReadOrderIds();
+    const notifs = [];
+
+    pedidos.forEach((p) => {
+      const shortId = p.id ? p.id.slice(0, 8) : '--------';
+      const comercio = p.comercios_datos?.nombre_comercial || 'Comercio';
+      const cliente = p.profiles?.nombre_completo || 'Cliente';
+
+      // 1. Pedido asignado activo
+      if (p.estado !== 'cancelado' && p.estado !== 'entregado') {
+        const isRead = readIds.has(`${p.id}-asignado`);
+        notifs.push({
+          id: `notif-asig-${p.id}`,
+          orderId: p.id,
+          tipo: 'asignado',
+          title: `¡Pedido Asignado! #${shortId}`,
+          desc: `Comercio: ${comercio} · Destino: ${p.direccion_entrega || 'Dirección de entrega'}`,
+          total: p.total_usd,
+          timestamp: p.updated_at || p.created_at,
+          unread: !isRead,
+          pedido: p,
+        });
+      }
+
+      // 2. Valoración recibida
+      if (p.valoracion) {
+        const isRead = readIds.has(`${p.id}-valoracion`);
+        notifs.push({
+          id: `notif-val-${p.id}`,
+          orderId: p.id,
+          tipo: 'valoracion',
+          title: `¡Valoración Recibida! #${shortId}`,
+          desc: `${cliente} te calificó con ${p.valoracion} estrellas.${p.comentario ? ` "${p.comentario}"` : ''}`,
+          total: p.total_usd,
+          stars: p.valoracion,
+          timestamp: p.updated_at || p.created_at,
+          unread: !isRead,
+          pedido: p,
+        });
+      }
+    });
+
+    setRepNotifications(notifs);
+
+    // Hero chip pill
+    const unreadAsig = notifs.filter((n) => n.unread && n.tipo === 'asignado');
+    const unreadVal = notifs.filter((n) => n.unread && n.tipo === 'valoracion');
+    if (unreadAsig.length > 0) {
+      const target = unreadAsig[0];
+      setActiveAlertPill({
+        orderId: target.orderId,
+        tipo: 'asignado',
+        title: `¡Pedido Asignado! #${target.orderId.slice(0, 8)}`,
+        total: target.total,
+      });
+    } else if (unreadVal.length > 0) {
+      const target = unreadVal[0];
+      setActiveAlertPill({
+        orderId: target.orderId,
+        tipo: 'valoracion',
+        title: `¡Valoración de ${target.stars}★! #${target.orderId.slice(0, 8)}`,
+        total: target.total,
+      });
+    } else {
+      setActiveAlertPill(null);
+    }
+  }, [pedidos]);
+
+  const handleMarkItemAsRead = (orderId, tipo) => {
+    markRepartidorOrderAsRead(orderId, tipo);
+    setRepNotifications((prev) =>
+      prev.map((n) => (n.orderId === orderId && n.tipo === tipo ? { ...n, unread: false } : n))
+    );
+    setActiveAlertPill((prev) => (prev?.orderId === orderId ? null : prev));
+  };
+
+  const handleMarkAllAsRead = () => {
+    markAllRepartidorOrdersAsRead(repNotifications);
+    setRepNotifications((prev) => prev.map((n) => ({ ...n, unread: false })));
+    setActiveAlertPill(null);
+  };
 
   if (loading) return <div className="db-loading"><span className="db-spinner" /></div>;
   if (!repartidor) return (
@@ -1129,7 +2481,6 @@ function DashboardRepartidor({ session, onSignOut, onGoToProfile, registeredRol,
     color: COLORS.purple,
   }));
 
-  // Gráfico 2: Pedidos por estado
   const ESTADOS = ['en_camino', 'entregado', 'cancelado'];
   const ESTADO_LABEL = { en_camino: 'En camino', entregado: 'Entregado', cancelado: 'Cancelado' };
   const byEstado = ESTADOS.map(e => ({
@@ -1137,6 +2488,44 @@ function DashboardRepartidor({ session, onSignOut, onGoToProfile, registeredRol,
     value: pedidos.filter(p => p.estado === e).length,
     color: ESTADO_COLOR[e],
   }));
+
+  const REP_ESTADO_LABEL = {
+    pendiente:      'Por Recibir',
+    confirmado:     'Confirmado',
+    en_preparacion: 'En preparación',
+    en_camino:      'En camino',
+    entregado:      'Entregado',
+    cancelado:      'Cancelado',
+  };
+
+  const REP_ESTADO_COLOR = {
+    pendiente:      '#f59e0b',
+    confirmado:     '#3b82f6',
+    en_preparacion: '#06b6d4',
+    en_camino:      '#818cf8',
+    entregado:      '#10b981',
+    cancelado:      '#f87171',
+  };
+
+  const pedidosActivosCount = pedidos.filter(p => p.estado !== 'entregado' && p.estado !== 'cancelado').length;
+
+  const filtradosOrders = pedidos.filter(p => {
+    if (filterOrders === 'activos') {
+      if (p.estado === 'entregado' || p.estado === 'cancelado') return false;
+    } else if (filterOrders !== 'todos') {
+      if (p.estado !== filterOrders) return false;
+    }
+
+    if (searchOrders.trim() !== '') {
+      const q = searchOrders.toLowerCase();
+      const idMatch = p.id?.toLowerCase().includes(q);
+      const comMatch = p.comercios_datos?.nombre_comercial?.toLowerCase().includes(q);
+      const cliMatch = p.profiles?.nombre_completo?.toLowerCase().includes(q);
+      const dirMatch = p.direccion_entrega?.toLowerCase().includes(q);
+      return idMatch || comMatch || cliMatch || dirMatch;
+    }
+    return true;
+  });
 
   // Gráfico 3: Valoraciones recibidas (distribución 1-5 estrellas)
   const stars = [1, 2, 3, 4, 5].map(s => ({
@@ -1165,7 +2554,72 @@ function DashboardRepartidor({ session, onSignOut, onGoToProfile, registeredRol,
           </p>
         </div>
         <div className="db-hero-right">
+          {/* Píldora de alerta en vivo para repartidor */}
+          {activeAlertPill && (
+            <div
+              className={`db-alert-hero-chip db-alert-hero-chip--${activeAlertPill.tipo === 'valoracion' ? 'entregado' : 'nuevo'}`}
+              onClick={() => {
+                handleMarkItemAsRead(activeAlertPill.orderId, activeAlertPill.tipo);
+                if (activeAlertPill.tipo === 'valoracion') onGoToHistorial?.();
+                else onGoToPedidos?.(activeAlertPill.orderId);
+              }}
+              title="Clic para ver detalles"
+            >
+              <span className="db-alert-hero-pulse" />
+              <span className="db-alert-hero-icon">{activeAlertPill.tipo === 'valoracion' ? '⭐' : '🛵'}</span>
+              <span className="db-alert-hero-text">
+                <strong>{activeAlertPill.title}</strong>
+                {activeAlertPill.total !== undefined && ` · $${Number(activeAlertPill.total).toFixed(2)}`}
+              </span>
+              <span className="db-alert-hero-cta">Ver →</span>
+              <button
+                type="button"
+                className="db-alert-hero-close"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleMarkItemAsRead(activeAlertPill.orderId, activeAlertPill.tipo);
+                  setActiveAlertPill(null);
+                }}
+                title="Cerrar y marcar como leída"
+              >
+                ✕
+              </button>
+            </div>
+          )}
+
           <span className="db-hero-badge db-hero-badge--repartidor">🛵 Repartidor</span>
+
+          {/* Campana de Alertas de Repartidor */}
+          <div className="db-hero-alerts-bell-wrap">
+            <RepartidorAlertCenter
+              notifications={repNotifications}
+              unreadCount={repNotifications.filter((n) => n.unread).length}
+              isOpen={showRepNotifCenter}
+              onToggleOpen={() => setShowRepNotifCenter((prev) => !prev)}
+              onClose={() => setShowRepNotifCenter(false)}
+              onMarkAllAsRead={handleMarkAllAsRead}
+              onMarkItemAsRead={handleMarkItemAsRead}
+              onClearHistory={handleMarkAllAsRead}
+              onGoToPedidos={(orderId) => {
+                setShowRepNotifCenter(false);
+                onGoToPedidos?.(orderId);
+              }}
+              onGoToHistorial={() => {
+                setShowRepNotifCenter(false);
+                onGoToHistorial?.();
+              }}
+            />
+          </div>
+
+          <button
+            className="db-refresh-btn"
+            onClick={() => load(true)}
+            disabled={refreshing}
+            aria-label="Actualizar"
+            title="Actualizar"
+          >
+            <span className={refreshing ? 'db-refresh-spin' : ''}>↻</span>
+          </button>
           <ProfileMenu
             session={session}
             onSignOut={onSignOut}
@@ -1328,6 +2782,233 @@ function DashboardRepartidor({ session, onSignOut, onGoToProfile, registeredRol,
         />
       </div>
 
+      {/* ── LISTA COMPLETA DE PEDIDOS RECIBIDOS POR EL REPARTIDOR ── */}
+      <div className="db-section">
+        <div className="db-section-header">
+          <div>
+            <h2 className="db-section-title">📦 Todos los Pedidos Recibidos ({pedidos.length})</h2>
+            <p className="db-section-sub">
+              {pedidos.length === 0
+                ? 'Aún no has recibido pedidos asignados por comercios'
+                : `Historial completo de tus pedidos (${pedidosActivosCount} activo${pedidosActivosCount !== 1 ? 's' : ''})`
+              }
+            </p>
+          </div>
+          <button
+            type="button"
+            className="db-section-action-btn"
+            onClick={() => onGoToPedidos?.()}
+            title="Ir al panel de gestión de pedidos"
+          >
+            🛵 Gestionar Entregas ({pedidosActivosCount}) →
+          </button>
+        </div>
+
+        {/* Barra de Filtros y Búsqueda */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '0.85rem' }}>
+          <div className="db-day-filters" role="tablist">
+            {[
+              { id: 'todos',     label: `🗂 Todos (${pedidos.length})` },
+              { id: 'activos',   label: `⚡ Activos (${pedidosActivosCount})` },
+              { id: 'en_camino', label: `🚚 En camino (${pedidos.filter(p => p.estado === 'en_camino').length})` },
+              { id: 'entregado', label: `✅ Entregados (${entregados.length})` },
+              { id: 'cancelado', label: `❌ Cancelados (${pedidos.filter(p => p.estado === 'cancelado').length})` },
+            ].map(f => (
+              <button
+                key={f.id}
+                role="tab"
+                aria-selected={filterOrders === f.id}
+                className={`db-day-filter-btn ${filterOrders === f.id ? 'db-day-filter-btn--active' : ''}`}
+                onClick={() => setFilterOrders(f.id)}
+              >
+                {f.label}
+              </button>
+            ))}
+          </div>
+
+          <div style={{ position: 'relative', minWidth: '220px' }}>
+            <input
+              type="text"
+              placeholder="🔍 Buscar por comercio, cliente o #ID..."
+              value={searchOrders}
+              onChange={(e) => setSearchOrders(e.target.value)}
+              className="db-search-input"
+              style={{
+                width: '100%',
+                padding: '0.42rem 0.85rem',
+                borderRadius: '8px',
+                background: 'rgba(255,255,255,0.05)',
+                border: '1px solid var(--db-border)',
+                color: '#f1f5f9',
+                fontSize: '0.8rem',
+                outline: 'none',
+              }}
+            />
+            {searchOrders && (
+              <button
+                type="button"
+                onClick={() => setSearchOrders('')}
+                style={{
+                  position: 'absolute',
+                  right: '8px',
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  background: 'transparent',
+                  border: 'none',
+                  color: '#94a3b8',
+                  cursor: 'pointer',
+                  fontSize: '0.85rem',
+                }}
+              >
+                ✕
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Lista de Pedidos Recibidos */}
+        {filtradosOrders.length === 0 ? (
+          <div className="db-day-empty">
+            <span>🛵</span>
+            <p>
+              {pedidos.length === 0
+                ? 'No tienes pedidos asignados por el momento. Cuando un comercio te asigne un pedido, aparecerá aquí inmediatamente.'
+                : 'No se encontraron pedidos con el filtro o búsqueda seleccionada.'
+              }
+            </p>
+          </div>
+        ) : (
+          <div className="db-day-list">
+            {filtradosOrders.map(pedido => {
+              const isOpen = expandedOrderId === pedido.id;
+              const isActivo = pedido.estado !== 'entregado' && pedido.estado !== 'cancelado';
+              const badgeColor = REP_ESTADO_COLOR[pedido.estado] || '#64748b';
+              const badgeLabel = REP_ESTADO_LABEL[pedido.estado] || pedido.estado;
+              const comercioName = pedido.comercios_datos?.nombre_comercial || 'Comercio';
+              const clientName = pedido.profiles?.nombre_completo || 'Cliente';
+              const shortId = pedido.id ? pedido.id.slice(0, 8) : '--------';
+
+              return (
+                <div key={pedido.id} className={`db-day-card ${isOpen ? 'db-day-card--open' : ''} ${isActivo ? 'db-day-card--active-rep' : ''}`}>
+                  {/* Cabecera del pedido */}
+                  <button
+                    className="db-day-card-header"
+                    onClick={() => setExpandedOrderId(prev => prev === pedido.id ? null : pedido.id)}
+                    aria-expanded={isOpen}
+                  >
+                    <div className="db-day-card-left">
+                      <span
+                        className="db-day-badge"
+                        style={{ background: `${badgeColor}22`, color: badgeColor, border: `1px solid ${badgeColor}44` }}
+                      >
+                        {badgeLabel}
+                      </span>
+
+                      {isActivo && (
+                        <span className="db-rep-card-pill-active">
+                          ⚡ EN CURSO
+                        </span>
+                      )}
+
+                      {pedido.valoracion && (
+                        <span className="db-rep-card-pill-val">
+                          ⭐ {pedido.valoracion}★
+                        </span>
+                      )}
+
+                      <div>
+                        <p className="db-day-comercio">
+                          <span style={{ color: '#94a3b8', fontSize: '0.78rem' }}>#{shortId} · </span>
+                          <strong>{comercioName}</strong> → {clientName}
+                        </p>
+                        <p className="db-day-time">{formatDate(pedido.created_at)}</p>
+                      </div>
+                    </div>
+
+                    <div className="db-day-card-right">
+                      <span className="db-day-total">${pedido.total_usd?.toFixed(2)} USD</span>
+                      <span className={`db-day-chevron ${isOpen ? 'db-day-chevron--up' : ''}`}>›</span>
+                    </div>
+                  </button>
+
+                  {/* Detalle expandido */}
+                  {isOpen && (
+                    <div className="db-day-card-body">
+                      {/* Ruta Comercio -> Cliente */}
+                      <div className="db-rep-route-summary">
+                        <div className="db-rep-route-item">
+                          <span className="db-rep-route-icon">🏪</span>
+                          <div>
+                            <span className="db-rep-route-type">PUNTO DE RETIRO:</span>
+                            <strong>{comercioName}</strong>
+                            <span className="db-rep-route-addr">{pedido.comercios_datos?.direccion || 'Dirección de comercio no especificada'}</span>
+                          </div>
+                        </div>
+
+                        <div className="db-rep-route-item">
+                          <span className="db-rep-route-icon">📍</span>
+                          <div>
+                            <span className="db-rep-route-type">PUNTO DE ENTREGA:</span>
+                            <strong>{clientName}</strong>
+                            <span className="db-rep-route-addr">{pedido.direccion_entrega || 'Dirección de entrega no especificada'}</span>
+                            {pedido.profiles?.telefono && (
+                              <a href={`tel:${pedido.profiles.telefono}`} className="db-rep-tel-link">
+                                📞 Contactar cliente: {pedido.profiles.telefono}
+                              </a>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Items del pedido si existen */}
+                      {(pedido.pedido_items ?? []).length > 0 && (
+                        <div className="db-day-items">
+                          <div className="db-rep-items-header">
+                            <span>📦 Productos ({pedido.pedido_items.length}):</span>
+                          </div>
+                          {pedido.pedido_items.map((item, i) => (
+                            <div key={i} className="db-day-item-row">
+                              {item.productos?.imagen_url && (
+                                <img src={item.productos.imagen_url} alt={item.productos?.nombre} className="db-day-item-img" />
+                              )}
+                              <span className="db-day-item-name">{item.productos?.nombre ?? 'Producto'}</span>
+                              <span className="db-day-item-qty">x{item.cantidad}</span>
+                              <span className="db-day-item-sub">${item.subtotal_usd?.toFixed(2)}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Calificación y Comentario */}
+                      {pedido.valoracion && (
+                        <div className="db-rep-val-box">
+                          <span className="db-rep-val-stars">{'★'.repeat(pedido.valoracion)}{'☆'.repeat(5 - pedido.valoracion)}</span>
+                          <span>Calificación del cliente: <strong>{pedido.valoracion}.0 / 5.0</strong></span>
+                          {pedido.comentario && <p className="db-rep-val-comment">"{pedido.comentario}"</p>}
+                        </div>
+                      )}
+
+                      {/* Acciones de pie de tarjeta */}
+                      <div className="db-rep-card-footer-actions">
+                        <button
+                          type="button"
+                          className="db-rep-btn-manage"
+                          onClick={() => {
+                            onGoToPedidos?.(pedido.id);
+                          }}
+                        >
+                          {isActivo ? '🛵 Gestionar Entrega en Pedidos →' : '📋 Ver en Gestión de Pedidos →'}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
       <div className="db-grid-2">
         <Section title="Entregas Últimos 7 Días" subtitle="Pedidos entregados por día">
           <BarChart data={entregasDiarias} />
@@ -1358,7 +3039,7 @@ function DashboardRepartidor({ session, onSignOut, onGoToProfile, registeredRol,
 // ════════════════════════════════════════════════════
 // COMPONENTE PRINCIPAL
 // ════════════════════════════════════════════════════
-export default function Dashboard({ session, rol, registeredRol, onSwitchMode, onSignOut, onGoToProfile }) {
+export default function Dashboard({ session, rol, registeredRol, onSwitchMode, onSignOut, onGoToProfile, onGoToTracking, onGoToPedidos, onGoToHistorial, onGoToPago, onGoToTiendas }) {
   if (rol === 'comercio') {
     return (
       <DashboardComercio
@@ -1380,6 +3061,8 @@ export default function Dashboard({ session, rol, registeredRol, onSwitchMode, o
         onSwitchMode={onSwitchMode}
         onSignOut={onSignOut}
         onGoToProfile={onGoToProfile}
+        onGoToPedidos={onGoToPedidos}
+        onGoToHistorial={onGoToHistorial}
       />
     );
   }
@@ -1391,6 +3074,10 @@ export default function Dashboard({ session, rol, registeredRol, onSwitchMode, o
       onSwitchMode={onSwitchMode}
       onSignOut={onSignOut}
       onGoToProfile={onGoToProfile}
+      onGoToTracking={onGoToTracking}
+      onGoToHistorial={onGoToHistorial}
+      onGoToPago={onGoToPago}
+      onGoToTiendas={onGoToTiendas}
     />
   );
 }

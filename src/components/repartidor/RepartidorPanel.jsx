@@ -1,5 +1,11 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../../lib/supabase';
+import {
+  RepartidorAlertCenter,
+  getRepartidorReadOrderIds,
+  markRepartidorOrderAsRead,
+  markAllRepartidorOrdersAsRead,
+} from './RepartidorAlertas';
 import './RepartidorPanel.css';
 
 const VEHICULOS = ['moto', 'carro'];
@@ -47,6 +53,13 @@ export default function RepartidorPanel({ session, initialTab = 'pedidos' }) {
   const [loadingPedidos, setLoadingPedidos]     = useState(true);
   const [updatingPedidoId, setUpdatingPedidoId] = useState(null);
   const [filtroPedidos, setFiltroPedidos]       = useState('activos');
+
+  // ── Alertas y Notificaciones del Repartidor ───────────────────
+  const [repNotifications, setRepNotifications] = useState([]);
+  const [showNotifCenter, setShowNotifCenter]   = useState(false);
+  const [activeAlertBanner, setActiveAlertBanner] = useState(null);
+  const [highlightOrderId, setHighlightOrderId]   = useState(null);
+  const [readOrderKeys, setReadOrderKeys]         = useState(() => getRepartidorReadOrderIds());
 
   const [activeTab, setActiveTab] = useState(initialTab);
 
@@ -145,6 +158,165 @@ export default function RepartidorPanel({ session, initialTab = 'pedidos' }) {
     }
   }, [fetchPedidosAsignados, fetchHistorial, repData, activeTab]);
 
+  // Sincronizar notificaciones y banner de alertas a partir de pedidos
+  useEffect(() => {
+    const readIds = getRepartidorReadOrderIds();
+    setReadOrderKeys(readIds);
+
+    if (!pedidosAsignados || pedidosAsignados.length === 0) {
+      setRepNotifications([]);
+      setActiveAlertBanner(null);
+      return;
+    }
+
+    const notifs = [];
+    let unreadAssignedOrder = null;
+
+    pedidosAsignados.forEach((p) => {
+      const shortId = p.id ? p.id.slice(0, 8) : '--------';
+      const comercio = p.comercios_datos?.nombre_comercial || 'Comercio';
+      const cliente = p.profiles?.nombre_completo || 'Cliente';
+
+      // 1. Pedido asignado activo
+      if (p.estado !== 'cancelado' && p.estado !== 'entregado') {
+        const isRead = readIds.has(`${p.id}-asignado`);
+        const item = {
+          id: `notif-asig-${p.id}`,
+          orderId: p.id,
+          tipo: 'asignado',
+          title: `¡Pedido Asignado! #${shortId}`,
+          desc: `Comercio: ${comercio} · Destino: ${p.direccion_entrega || 'Dirección de entrega'}`,
+          total: p.total_usd,
+          timestamp: p.updated_at || p.created_at,
+          unread: !isRead,
+          pedido: p,
+        };
+        notifs.push(item);
+        if (!isRead && !unreadAssignedOrder) {
+          unreadAssignedOrder = {
+            orderId: p.id,
+            shortId,
+            comercio,
+            direccion: p.direccion_entrega || 'Dirección no especificada',
+            total: p.total_usd,
+          };
+        }
+      }
+
+      // 2. Valoración recibida
+      if (p.valoracion) {
+        const isRead = readIds.has(`${p.id}-valoracion`);
+        notifs.push({
+          id: `notif-val-${p.id}`,
+          orderId: p.id,
+          tipo: 'valoracion',
+          title: `¡Valoración Recibida! #${shortId}`,
+          desc: `${cliente} te calificó con ${p.valoracion} estrellas.${p.comentario ? ` "${p.comentario}"` : ''}`,
+          total: p.total_usd,
+          stars: p.valoracion,
+          timestamp: p.updated_at || p.created_at,
+          unread: !isRead,
+          pedido: p,
+        });
+      }
+    });
+
+    setRepNotifications(notifs);
+    setActiveAlertBanner(unreadAssignedOrder);
+  }, [pedidosAsignados]);
+
+  // Manejador para marcar alerta leída
+  const handleMarkItemAsRead = (orderId, tipo = 'asignado') => {
+    markRepartidorOrderAsRead(orderId, tipo);
+    setReadOrderKeys(getRepartidorReadOrderIds());
+    setRepNotifications((prev) =>
+      prev.map((n) => (n.orderId === orderId && n.tipo === tipo ? { ...n, unread: false } : n))
+    );
+    if (activeAlertBanner?.orderId === orderId) {
+      setActiveAlertBanner(null);
+    }
+  };
+
+  // Manejador para marcar todas las alertas como leídas
+  const handleMarkAllAsRead = () => {
+    markAllRepartidorOrdersAsRead(repNotifications);
+    setReadOrderKeys(getRepartidorReadOrderIds());
+    setRepNotifications((prev) => prev.map((n) => ({ ...n, unread: false })));
+    setActiveAlertBanner(null);
+  };
+
+  // Escuchar evento de enfoque de pedido desde toast o banner
+  useEffect(() => {
+    const handleFocus = (e) => {
+      if (e.detail?.orderId) {
+        setActiveTab('pedidos');
+        setHighlightOrderId(e.detail.orderId);
+      }
+    };
+    window.addEventListener('levant_focus_pedido', handleFocus);
+    return () => window.removeEventListener('levant_focus_pedido', handleFocus);
+  }, []);
+
+  // Refrescar automáticamente al recibir evento de alerta de pedido o valoración
+  useEffect(() => {
+    const handleAlert = () => {
+      fetchPedidosAsignados();
+      fetchHistorial();
+    };
+    window.addEventListener('levant_repartidor_alert_event', handleAlert);
+    return () => window.removeEventListener('levant_repartidor_alert_event', handleAlert);
+  }, [fetchPedidosAsignados, fetchHistorial]);
+
+  // ── Suscripción en tiempo real: ajustar disponibilidad automáticamente ────
+  useEffect(() => {
+    if (!repData?.id) return;
+    let channel;
+    const setupChannel = () => {
+      channel = supabase
+        .channel(`rep-orders-avail-${repData.id}`)
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'pedidos_entregas', filter: `repartidor_id=eq.${repData.id}` },
+          async (payload) => {
+            const { new: newRow } = payload;
+            if (!newRow) return;
+
+            const estadosActivos = ['pendiente', 'confirmado', 'en_preparacion', 'en_camino'];
+            const esActivo = estadosActivos.includes(newRow.estado);
+
+            if (esActivo) {
+              // Pedido asignado y activo → marcar no disponible
+              const { error } = await supabase
+                .from('repartidores_datos')
+                .update({ disponible: false })
+                .eq('id', repData.id);
+              if (!error) setDisponible(false);
+            } else if (newRow.estado === 'entregado' || newRow.estado === 'cancelado') {
+              // Pedido finalizado → verificar si quedan pedidos activos
+              const { data: activos } = await supabase
+                .from('pedidos_entregas')
+                .select('id')
+                .eq('repartidor_id', repData.id)
+                .in('estado', estadosActivos);
+              const sinPedidosActivos = !activos || activos.length === 0;
+              if (sinPedidosActivos) {
+                const { error } = await supabase
+                  .from('repartidores_datos')
+                  .update({ disponible: true })
+                  .eq('id', repData.id);
+                if (!error) setDisponible(true);
+              }
+            }
+            // Refrescar lista de pedidos
+            fetchPedidosAsignados();
+          }
+        )
+        .subscribe();
+    };
+    setupChannel();
+    return () => { if (channel) supabase.removeChannel(channel); };
+  }, [repData?.id, fetchPedidosAsignados]);
+
   // ── Cambiar estado del pedido (Recibir / Entregar) ─────────────
   const cambiarEstadoPedido = async (pedidoId, nuevoEstado) => {
     setUpdatingPedidoId(pedidoId);
@@ -162,11 +334,27 @@ export default function RepartidorPanel({ session, initialTab = 'pedidos' }) {
         console.error('Error actualizando pedido:', error);
         alert('Error al actualizar pedido: ' + error.message);
       } else {
-        setPedidosAsignados(prev => prev.map(p => (
+        const updated = pedidosAsignados.map(p =>
           p.id === pedidoId ? { ...p, estado: nuevoEstado } : p
-        )));
-        if (nuevoEstado === 'entregado') {
-          fetchHistorial();
+        );
+        setPedidosAsignados(updated);
+        handleMarkItemAsRead(pedidoId, 'asignado');
+
+        if (nuevoEstado === 'entregado' || nuevoEstado === 'cancelado') {
+          // Verificar si quedan pedidos activos después de esta actualización
+          const estadosActivos = ['pendiente', 'confirmado', 'en_preparacion', 'en_camino'];
+          const quedanActivos = updated.some(
+            p => p.id !== pedidoId && estadosActivos.includes(p.estado)
+          );
+          if (!quedanActivos) {
+            // Sin más pedidos activos → restaurar disponibilidad
+            const { error: dispErr } = await supabase
+              .from('repartidores_datos')
+              .update({ disponible: true })
+              .eq('id', repData.id);
+            if (!dispErr) setDisponible(true);
+          }
+          if (nuevoEstado === 'entregado') fetchHistorial();
         }
       }
     } catch (err) {
@@ -259,21 +447,93 @@ export default function RepartidorPanel({ session, initialTab = 'pedidos' }) {
           </div>
         </div>
 
-        {/* Toggle de disponibilidad */}
-        <div className="rp-avail">
-          <span className={`rp-avail-dot ${disponible ? 'rp-avail-dot--on' : ''}`} />
-          <span className="rp-avail-label">{disponible ? 'Disponible' : 'No disponible'}</span>
-          <button
-            id="rp-toggle-disponible"
-            className={`rp-avail-btn ${disponible ? 'rp-avail-btn--on' : 'rp-avail-btn--off'}`}
-            onClick={toggleDisponible}
-            disabled={toggling || !repData?.id}
-            aria-pressed={disponible}
-          >
-            {toggling ? <span className="rp-spinner-sm" /> : disponible ? '🟢 EN LÍNEA' : '⚫ DESCONECTADO'}
-          </button>
+        {/* Acciones del Header: Disponibilidad y Centro de Alertas */}
+        <div className="rp-hero-actions">
+          {/* Toggle de disponibilidad */}
+          <div className="rp-avail">
+            <span className={`rp-avail-dot ${disponible ? 'rp-avail-dot--on' : ''}`} />
+            <span className="rp-avail-label">{disponible ? 'Disponible' : 'No disponible'}</span>
+            <button
+              id="rp-toggle-disponible"
+              className={`rp-avail-btn ${disponible ? 'rp-avail-btn--on' : 'rp-avail-btn--off'}`}
+              onClick={toggleDisponible}
+              disabled={toggling || !repData?.id}
+              aria-pressed={disponible}
+            >
+              {toggling ? <span className="rp-spinner-sm" /> : disponible ? '🟢 EN LÍNEA' : '⚫ DESCONECTADO'}
+            </button>
+          </div>
+
+          {/* Campana de Notificaciones y Alertas del Repartidor */}
+          <div className="rp-alerts-controls">
+            <RepartidorAlertCenter
+              notifications={repNotifications}
+              unreadCount={repNotifications.filter((n) => n.unread).length}
+              isOpen={showNotifCenter}
+              onToggleOpen={() => setShowNotifCenter((prev) => !prev)}
+              onClose={() => setShowNotifCenter(false)}
+              onMarkAllAsRead={handleMarkAllAsRead}
+              onMarkItemAsRead={handleMarkItemAsRead}
+              onClearHistory={handleMarkAllAsRead}
+              onGoToPedidos={(orderId) => {
+                setActiveTab('pedidos');
+                if (orderId) setHighlightOrderId(orderId);
+              }}
+              onGoToHistorial={() => setActiveTab('historial')}
+            />
+          </div>
         </div>
       </div>
+
+      {/* ── Banner de Alerta Activa para el Repartidor (Similar a Comercio y Cliente) ── */}
+      {activeAlertBanner && (
+        <div className="rp-alert-banner" role="alert">
+          <div className="rp-alert-banner-glow" />
+          <div className="rp-alert-banner-left">
+            <span className="rp-alert-banner-pulse" />
+            <div className="rp-alert-banner-icon-wrap">
+              <span>🛵</span>
+            </div>
+            <div className="rp-alert-banner-text">
+              <div className="rp-alert-banner-header">
+                <span className="rp-alert-banner-badge">¡NUEVO PEDIDO ASIGNADO!</span>
+                <span className="rp-alert-banner-order-id">#{activeAlertBanner.shortId}</span>
+              </div>
+              <p className="rp-alert-banner-desc">
+                <strong>{activeAlertBanner.comercio}</strong> · Destino: {activeAlertBanner.direccion}
+                {activeAlertBanner.total !== undefined && (
+                  <span className="rp-alert-banner-amount"> · ${Number(activeAlertBanner.total).toFixed(2)} USD</span>
+                )}
+              </p>
+            </div>
+          </div>
+          <div className="rp-alert-banner-actions">
+            <button
+              type="button"
+              className="rp-alert-banner-btn-view"
+              onClick={() => {
+                handleMarkItemAsRead(activeAlertBanner.orderId, 'asignado');
+                setActiveAlertBanner(null);
+                setActiveTab('pedidos');
+                setHighlightOrderId(activeAlertBanner.orderId);
+              }}
+            >
+              📥 Ver y Gestionar Pedido
+            </button>
+            <button
+              type="button"
+              className="rp-alert-banner-btn-close"
+              onClick={() => {
+                handleMarkItemAsRead(activeAlertBanner.orderId, 'asignado');
+                setActiveAlertBanner(null);
+              }}
+              title="Marcar como leído"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* ── Tabs ── */}
       <div className="rp-tabs" role="tablist">
@@ -374,8 +634,24 @@ export default function RepartidorPanel({ session, initialTab = 'pedidos' }) {
                       const isEnCamino = ped.estado === 'en_camino';
                       const isEntregado = ped.estado === 'entregado';
 
+                      const isUnread = !readOrderKeys.has(`${ped.id}-asignado`) && ped.estado !== 'entregado';
+                      const isHighlighted = highlightOrderId === ped.id;
+
                       return (
-                        <div key={ped.id} className={`rp-pedido-card ${isEnCamino ? 'rp-pedido-card--en-camino' : ''}`}>
+                        <div
+                          key={ped.id}
+                          id={`rp-order-${ped.id}`}
+                          className={`rp-pedido-card ${isEnCamino ? 'rp-pedido-card--en-camino' : ''} ${isUnread || isHighlighted ? 'rp-pedido-card--new-alert' : ''}`}
+                          onClick={() => {
+                            if (isUnread) handleMarkItemAsRead(ped.id, 'asignado');
+                          }}
+                        >
+                          {isUnread && (
+                            <div className="rp-card-new-assigned-badge">
+                              <span className="rp-card-new-dot" />
+                              <span>✨ ¡NUEVO ASIGNADO!</span>
+                            </div>
+                          )}
                           {/* Top */}
                           <div className="rp-card-header">
                             <div className="rp-card-id-wrap">

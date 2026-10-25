@@ -16,7 +16,7 @@ const TIMELINE_STEPS = [
   { key: 'entregado', label: 'Entregado', icon: CheckCircleIcon, desc: '¡Pedido entregado con éxito!' }
 ];
 
-export default function RastreoPedidoNeumorphic({ session }) {
+export default function RastreoPedidoNeumorphic({ session, initialOrderId }) {
   const [orders, setOrders] = useState([]);
   const [selectedOrderId, setSelectedOrderId] = useState(null);
   const [activeOrder, setActiveOrder] = useState(null);
@@ -58,8 +58,9 @@ export default function RastreoPedidoNeumorphic({ session }) {
 
         if (!error && data && data.length > 0) {
           setOrders(data);
-          setSelectedOrderId(data[0].id);
-          setActiveOrder(data[0]);
+          const target = (initialOrderId && data.find((o) => o.id === initialOrderId)) || data[0];
+          setSelectedOrderId(target.id);
+          setActiveOrder(target);
         } else {
           // Si el usuario aún no tiene pedidos en BD, proveer un pedido interactivo de demostración
           const mockOrder = {
@@ -88,6 +89,16 @@ export default function RastreoPedidoNeumorphic({ session }) {
 
     loadClientOrders();
   }, [session]);
+
+  // Actualizar pedido activo si initialOrderId cambia externamente (ej: desde alerta)
+  useEffect(() => {
+    if (!initialOrderId || orders.length === 0) return;
+    const found = orders.find((o) => o.id === initialOrderId);
+    if (found) {
+      setSelectedOrderId(found.id);
+      setActiveOrder(found);
+    }
+  }, [initialOrderId, orders]);
 
   // Actualizar pedido activo al cambiar de selector
   useEffect(() => {

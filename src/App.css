@@ -87,20 +87,41 @@ body {
 .app-logo {
   display: flex;
   align-items: center;
-  gap: 0.7rem;
-  font-size: 1.15rem;
+  gap: 0.75rem;
+  font-size: 1.25rem;
   font-weight: 800;
-  color: #f1f5f9;
+  color: #ffffff;
   flex-shrink: 0;
   padding: 0 .35rem;
   letter-spacing: -0.02em;
+  user-select: none;
+}
+
+.app-logo-circle {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: #11141b;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.5), inset 0 1px 1px rgba(255, 255, 255, 0.08);
+  transition: all .2s ease;
 }
 
 .app-logo-img {
-  width: 32px;
-  height: 32px;
+  width: 24px;
+  height: 24px;
   object-fit: contain;
-  border-radius: 8px;
+  border-radius: 50%;
+}
+
+.app-logo-text {
+  color: #ffffff;
+  font-weight: 800;
+  letter-spacing: -0.02em;
 }
 
 /* Tabs verticales */
@@ -382,11 +403,12 @@ body {
   /* Top section contiene logo (oculto) + tabs */
   .app-sidebar-top {
     flex: 1;
+    display: flex;
     flex-direction: row;
     align-items: stretch;
+    justify-content: stretch;
     gap: 0;
-    overflow-x: auto;
-    /* ocultar scrollbar */
+    overflow-x: hidden;
     scrollbar-width: none;
     -ms-overflow-style: none;
   }
@@ -400,22 +422,32 @@ body {
     flex-direction: row;
     gap: 0;
     flex: 1;
+    display: flex;
     align-items: stretch;
+  }
+
+  /* En menú inferior responsivo: mostrar Dashboard + Hacer Pedidos (clientes) */
+  .app-tabs .app-tab:not(#tab-dashboard):not(#tab-tiendas) {
+    display: none !important;
+  }
+  .app-tabs:not(:has(#tab-dashboard)) .app-tab:first-child {
+    display: flex !important;
   }
 
   .app-tab {
     flex: 1;
+    display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: .25rem;
-    padding: .55rem .25rem;
+    gap: .28rem;
+    padding: .6rem .5rem;
     border-radius: 0;
     border: none;
-    min-width: 56px;
+    min-width: 0;
     background: transparent;
     color: #64748b;
-    font-size: .64rem;
+    font-size: .7rem;
     font-weight: 500;
     width: auto;
   }
@@ -443,14 +475,13 @@ body {
     box-shadow: 0 0 12px var(--tab-glow);
   }
 
-  /* Etiqueta de texto bajo el ícono (acortada) */
+  /* Etiqueta de texto bajo el ícono */
   .app-tab-label {
-    font-size: .58rem;
+    font-size: .68rem;
     letter-spacing: .01em;
     text-overflow: ellipsis;
     overflow: hidden;
     white-space: nowrap;
-    max-width: 64px;
     text-align: center;
   }
 
@@ -462,57 +493,34 @@ body {
   /* Botón logout en la bottom nav (solo mobile) */
   .app-tab-logout-mobile {
     display: flex;
+    flex: 1;
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: .25rem;
-    padding: .55rem .25rem;
+    gap: .28rem;
+    padding: .6rem .5rem;
     border: none;
     border-radius: 0;
     background: transparent;
     color: #f87171;
     font-family: 'Inter', sans-serif;
-    font-size: .64rem;
+    font-size: .7rem;
     font-weight: 500;
     cursor: pointer;
-    min-width: 56px;
-    flex-shrink: 0;
+    min-width: 0;
     transition: all .22s ease;
   }
   .app-tab-logout-mobile:hover {
     background: rgba(248, 113, 113, 0.08);
   }
   .app-tab-logout-mobile .app-tab-label {
-    font-size: .58rem;
+    font-size: .68rem;
     color: #f87171;
   }
 
-  /* Botón cambiar rol en la bottom nav (solo mobile) */
+  /* Ocultar botón cambiar rol de la bottom nav */
   .app-tab-rol-mobile {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: .25rem;
-    padding: .55rem .25rem;
-    border: none;
-    border-radius: 0;
-    background: transparent;
-    font-family: 'Inter', sans-serif;
-    font-size: .64rem;
-    font-weight: 500;
-    cursor: pointer;
-    min-width: 56px;
-    flex-shrink: 0;
-    transition: all .22s ease;
-  }
-  .app-tab-rol-mobile:hover {
-    background: rgba(255, 255, 255, 0.04);
-  }
-  .app-tab-rol-mobile .app-tab-label {
-    font-size: .58rem;
-    font-weight: 600;
-    color: #cbd5e1;
+    display: none !important;
   }
 
   /* Mobile topbar (barra superior presente en celular para todos los usuarios) */
@@ -527,6 +535,54 @@ body {
     top: 0;
     z-index: 100;
     box-shadow: 0 2px 14px rgba(0, 0, 0, 0.4);
+  }
+
+  /* Botón interactivo para abrir el menú responsivo desde el icono Levant */
+  .app-mobile-menu-trigger {
+    display: flex;
+    align-items: center;
+    gap: .55rem;
+    cursor: pointer;
+    user-select: none;
+    background: transparent;
+    border: none;
+    padding: .2rem .35rem;
+    border-radius: 10px;
+    transition: all .2s ease;
+  }
+  .app-mobile-menu-trigger:hover {
+    background: rgba(255, 255, 255, 0.05);
+  }
+  .app-mobile-menu-trigger:active {
+    transform: scale(0.97);
+  }
+
+  .app-mobile-menu-hamburger {
+    width: 30px;
+    height: 30px;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #94a3b8;
+    flex-shrink: 0;
+    transition: all .2s ease;
+  }
+  .app-mobile-menu-trigger:hover .app-mobile-menu-hamburger {
+    color: #f1f5f9;
+    border-color: rgba(255, 255, 255, 0.22);
+    background: rgba(255, 255, 255, 0.1);
+  }
+
+  .app-mobile-menu-chevron {
+    color: #64748b;
+    transition: transform .25s ease, color .25s ease;
+  }
+  .app-mobile-menu-chevron--open {
+    transform: rotate(180deg);
+    color: #f1f5f9;
   }
 
   .app-mobile-topbar-brand {
@@ -544,26 +600,261 @@ body {
     width: 32px;
     height: 32px;
     border-radius: 50%;
-    background: rgba(255, 255, 255, 0.04);
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: #11141b;
+    border: 1px solid rgba(255, 255, 255, 0.12);
     display: flex;
     align-items: center;
     justify-content: center;
     flex-shrink: 0;
-    box-shadow: inset 0 1px 2px rgba(255, 255, 255, 0.08);
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.5), inset 0 1px 1px rgba(255, 255, 255, 0.08);
+    transition: all .2s ease;
+  }
+
+  .app-mobile-menu-trigger:hover .app-mobile-logo-circle {
+    border-color: rgba(255, 255, 255, 0.25);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.65), inset 0 1px 1px rgba(255, 255, 255, 0.14);
   }
 
   .app-mobile-logo-img {
-    width: 18px;
-    height: 18px;
+    width: 22px;
+    height: 22px;
     object-fit: contain;
+    border-radius: 50%;
   }
 
   .app-mobile-brand-name {
-    font-size: 1.15rem;
+    font-size: 1.25rem;
     font-weight: 800;
     color: #ffffff;
     letter-spacing: -.02em;
+  }
+
+  /* ── Drawer de navegación lateral para mobile ── */
+  .app-mobile-drawer-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(4, 6, 11, 0.78);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    z-index: 9998;
+    animation: caDrawerBackdropFade 0.22s ease forwards;
+  }
+
+  @keyframes caDrawerBackdropFade {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+
+  .app-mobile-drawer {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: 300px;
+    max-width: 84vw;
+    background: #0b0e15;
+    border-right: 1px solid rgba(255, 255, 255, 0.1);
+    box-shadow: 12px 0 36px rgba(0, 0, 0, 0.75);
+    z-index: 9999;
+    display: flex;
+    flex-direction: column;
+    animation: caDrawerSlideIn 0.28s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    overflow: hidden;
+  }
+
+  @keyframes caDrawerSlideIn {
+    from { transform: translateX(-100%); }
+    to { transform: translateX(0); }
+  }
+
+  .app-mobile-drawer-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: .85rem 1rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    background: #090c12;
+  }
+
+  .app-mobile-drawer-brand {
+    display: flex;
+    align-items: center;
+    gap: .55rem;
+  }
+
+  .app-mobile-drawer-close {
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: #94a3b8;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s ease;
+  }
+  .app-mobile-drawer-close:hover {
+    background: rgba(255, 255, 255, 0.12);
+    color: #ffffff;
+  }
+
+  .app-mobile-drawer-user {
+    display: flex;
+    align-items: center;
+    gap: .75rem;
+    padding: .85rem 1rem;
+    background: rgba(255, 255, 255, 0.02);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  }
+
+  .app-mobile-drawer-avatar {
+    width: 38px;
+    height: 38px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #6366f1, #8b5cf6);
+    color: #ffffff;
+    font-weight: 700;
+    font-size: .95rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    box-shadow: 0 0 12px rgba(99, 102, 241, 0.35);
+  }
+
+  .app-mobile-drawer-user-info {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+
+  .app-mobile-drawer-user-name {
+    font-size: .86rem;
+    font-weight: 600;
+    color: #f1f5f9;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .app-mobile-drawer-user-role {
+    font-size: .7rem;
+    font-weight: 700;
+    letter-spacing: .04em;
+    color: #94a3b8;
+    margin-top: .1rem;
+  }
+  .app-mobile-drawer-user-role--cliente { color: #a5b4fc; }
+  .app-mobile-drawer-user-role--comercio { color: #6ee7b7; }
+  .app-mobile-drawer-user-role--repartidor { color: #fcd34d; }
+  .app-mobile-drawer-user-role--admin { color: #818cf8; }
+
+  .app-mobile-drawer-switcher {
+    padding: .75rem 1rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    background: rgba(0, 0, 0, 0.15);
+  }
+
+  .app-mobile-drawer-switcher-label {
+    font-size: .68rem;
+    color: #64748b;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: .05em;
+    margin-bottom: .4rem;
+    display: block;
+  }
+
+  .app-mobile-drawer-nav {
+    flex: 1;
+    overflow-y: auto;
+    padding: .75rem .85rem;
+    display: flex;
+    flex-direction: column;
+    gap: .35rem;
+  }
+
+  .app-mobile-drawer-nav-title {
+    font-size: .68rem;
+    font-weight: 700;
+    color: #64748b;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    padding: .2rem .5rem .35rem;
+  }
+
+  .app-mobile-drawer-item {
+    display: flex;
+    align-items: center;
+    gap: .75rem;
+    width: 100%;
+    padding: .65rem .75rem;
+    border-radius: 10px;
+    background: transparent;
+    border: 1px solid transparent;
+    color: #94a3b8;
+    font-family: inherit;
+    font-size: .86rem;
+    font-weight: 500;
+    cursor: pointer;
+    text-align: left;
+    transition: all 0.2s ease;
+  }
+
+  .app-mobile-drawer-item:hover {
+    background: rgba(255, 255, 255, 0.05);
+    color: #f1f5f9;
+  }
+
+  .app-mobile-drawer-item--active {
+    background: rgba(255, 255, 255, 0.07);
+    border-color: rgba(255, 255, 255, 0.12);
+    color: #ffffff;
+    font-weight: 600;
+  }
+
+  .app-mobile-drawer-item-label {
+    flex: 1;
+  }
+
+  .app-mobile-drawer-item-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--tab-color, #6366f1);
+    box-shadow: 0 0 8px var(--tab-color, #6366f1);
+  }
+
+  .app-mobile-drawer-footer {
+    padding: .85rem 1rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    background: #090c12;
+  }
+
+  .app-mobile-drawer-logout {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: .55rem;
+    width: 100%;
+    padding: .65rem 1rem;
+    border-radius: 10px;
+    background: rgba(248, 113, 113, 0.1);
+    border: 1px solid rgba(248, 113, 113, 0.25);
+    color: #f87171;
+    font-family: inherit;
+    font-size: .84rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+  }
+
+  .app-mobile-drawer-logout:hover {
+    background: rgba(248, 113, 113, 0.18);
+    border-color: #f87171;
+    color: #ffffff;
   }
 
   .app-mobile-topbar-right {

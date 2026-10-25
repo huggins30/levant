@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
+import { autoAsignarPedido } from '../../lib/asignacionPedidos';
 import './ReportePago.css';
 
 const BANCOS_VE = [
@@ -125,6 +126,11 @@ export default function ReportePago({ session, pedidoId, onReported }) {
     if (form.tasa_bcv && isNaN(parseFloat(form.tasa_bcv)))
       e.tasa_bcv = 'Tasa BCV inválida.';
 
+    // ── Comprobante OBLIGATORIO ──
+    if (!file) {
+      e.file = 'Debes cargar la imagen del comprobante de pago para continuar.';
+    }
+
     return e;
   };
 
@@ -159,18 +165,20 @@ export default function ReportePago({ session, pedidoId, onReported }) {
     try {
       let comprobante_url = null;
 
-      // Upload comprobante si existe
-      if (file) {
-        const ext  = file.name.split('.').pop();
-        const path = `comprobantes/${session.user.id}/${Date.now()}.${ext}`;
-        const { error: upErr } = await supabase.storage
-          .from('pagos')
-          .upload(path, file, { upsert: true });
-        if (upErr) throw upErr;
-
-        const { data: urlData } = supabase.storage.from('pagos').getPublicUrl(path);
-        comprobante_url = urlData.publicUrl;
+      // Upload comprobante OBLIGATORIO
+      if (!file) {
+        throw new Error('Debes cargar la imagen o captura del comprobante de pago.');
       }
+
+      const ext  = file.name.split('.').pop();
+      const path = `comprobantes/${session.user.id}/${Date.now()}.${ext}`;
+      const { error: upErr } = await supabase.storage
+        .from('pagos')
+        .upload(path, file, { upsert: true });
+      if (upErr) throw upErr;
+
+      const { data: urlData } = supabase.storage.from('pagos').getPublicUrl(path);
+      comprobante_url = urlData.publicUrl;
 
       const pId = selectedPedidoId || pedidoId || null;
 
@@ -190,6 +198,30 @@ export default function ReportePago({ session, pedidoId, onReported }) {
 
       const { error } = await supabase.from('reportes_pago').insert(payload);
       if (error) throw error;
+
+      // ── Una vez registrado el pago, auto-asignar repartidor según vehículo y producto ──
+      if (pId) {
+        try {
+          const { data: items } = await supabase
+            .from('pedido_items')
+            .select('cantidad, productos ( peso_kg )')
+            .eq('pedido_id', pId);
+
+          let pesoTotal = 1.0;
+          if (items && items.length > 0) {
+            pesoTotal = items.reduce((sum, it) => {
+              const qty = Number(it.cantidad) || 1;
+              const pUnit = Number(it.productos?.peso_kg) || 1.0;
+              return sum + (qty * pUnit);
+            }, 0);
+            pesoTotal = Number(pesoTotal.toFixed(2));
+          }
+
+          await autoAsignarPedido(pId, pesoTotal);
+        } catch (errAsign) {
+          console.warn('[ReportePago] Error asignando repartidor tras registrar pago:', errAsign);
+        }
+      }
 
       setStatus('success');
       setForm(defaultForm);
@@ -366,11 +398,11 @@ export default function ReportePago({ session, pedidoId, onReported }) {
 
           {/* ── Comprobante ── */}
           <div className={`rp-field ${errors.file ? 'rp-field--error' : ''}`}>
-            <label>Comprobante <span className="rp-optional">(imagen, máx. 5 MB)</span></label>
-            <label htmlFor="rp-file" className="rp-file-label">
+            <label>Comprobante de pago * <span style={{ color: '#ef4444', fontWeight: 700 }}>(Obligatorio, imagen máx. 5 MB)</span></label>
+            <label htmlFor="rp-file" className="rp-file-label" style={{ borderStyle: file ? 'solid' : 'dashed', borderColor: file ? '#10b981' : '#6c63ff' }}>
               {preview
                 ? <img src={preview} alt="comprobante" className="rp-preview" />
-                : <><span className="rp-file-icon">📎</span><span>Adjuntar imagen</span></>
+                : <><span className="rp-file-icon">📸</span><span>Cargar foto o captura del comprobante</span></>
               }
             </label>
             <input id="rp-file" type="file" accept="image/*,.pdf" onChange={handleFile} className="rp-file-hidden" />

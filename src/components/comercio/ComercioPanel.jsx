@@ -1,6 +1,21 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { supabase } from '../../lib/supabase';
+import { getSocket } from '../../lib/socket';
+import { buscarMejorRepartidorDisponible } from '../../lib/asignacionPedidos';
+import { 
+  ComercioAlertToasts, 
+  ComercioAlertCenter,
+  getReadOrderIds,
+  isOrderRead,
+  markOrderAsRead,
+  markAllOrdersAsRead,
+  hasComercioBeenAlerted,
+  markComercioAlerted
+} from './ComercioAlertas';
+import { playNewOrderSound, playOrderDeliveredSound, triggerDesktopNotification } from './comercioAlertSound';
+import { notifyRepartidorAsignado } from '../repartidor/RepartidorAlertas';
 import './ComercioPanel.css';
+import '../dashboard/Dashboard.css';
 
 const CATEGORIAS = [
   'restaurante','farmacia','supermercado','tecnologia',
@@ -320,6 +335,38 @@ export default function ComercioPanel({ session }) {
 
   const [activeTab, setActiveTab] = useState('perfil'); // 'perfil' | 'productos' | 'pedidos' | 'ventas'
 
+  // ── Alertas en Tiempo Real para Comercio (Pedidos hechos & entregados) ──
+  const [alertToasts, setAlertToasts] = useState([]);
+  const [alertNotifications, setAlertNotifications] = useState(() => {
+    try {
+      const saved = localStorage.getItem('levant_comercio_notifs');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [showNotifCenter, setShowNotifCenter] = useState(false);
+  const knownOrdersRef = useRef(new Map());
+  const initialLoadedRef = useRef(false);
+  const autoAssigningSetRef = useRef(new Set());
+  const alertedEventsRef = useRef(new Set((() => {
+    try {
+      const raw = sessionStorage.getItem('levant_comercio_alerted_keys');
+      return raw ? JSON.parse(raw) : [];
+    } catch {
+      return [];
+    }
+  })()));
+
+  // Guardar notificaciones en localStorage
+  useEffect(() => {
+    try {
+      localStorage.setItem('levant_comercio_notifs', JSON.stringify(alertNotifications.slice(0, 50)));
+    } catch {
+      // Ignorar errores de almacenamiento
+    }
+  }, [alertNotifications]);
+
   // ── Cargar perfil ───────────────────────────────────────────────
   useEffect(() => {
     if (!session?.user) return;
@@ -387,10 +434,18 @@ export default function ComercioPanel({ session }) {
     const [{ data: resumen }, { data: listaPedidos }] = await Promise.all([
       supabase.from('comercio_ventas_resumen').select('*').eq('comercio_id', perfil.id).single(),
       supabase.from('pedidos_entregas')
-        .select('id, estado, total_usd, created_at, confirmacion_cliente, valoracion, profiles!pedidos_entregas_cliente_id_fkey(nombre_completo), reportes_pago(metodo, estado, referencia)')
+        .select(`
+          id, estado, total_usd, created_at, confirmacion_cliente, valoracion,
+          profiles!pedidos_entregas_cliente_id_fkey(nombre_completo),
+          pedido_items (
+            cantidad, precio_usd, subtotal_usd,
+            productos ( id, nombre, imagen_url, precio_usd )
+          ),
+          reportes_pago(metodo, estado, referencia)
+        `)
         .eq('comercio_id', perfil.id)
         .order('created_at', { ascending: false })
-        .limit(50),
+        .limit(100),
     ]);
     setVentas(resumen);
     setPedidos(listaPedidos ?? []);
@@ -398,6 +453,45 @@ export default function ComercioPanel({ session }) {
   }, [perfil?.id]);
 
   useEffect(() => { if (perfil?.id && activeTab === 'ventas') fetchVentas(); }, [fetchVentas, perfil, activeTab]);
+
+  // ── Top Productos Más Vendidos del Comercio ──
+  const topProductosVendidos = useMemo(() => {
+    const map = new Map();
+    (pedidos || []).forEach(p => {
+      if (p.estado === 'cancelado') return;
+      (p.pedido_items || []).forEach(item => {
+        const prod = item.productos;
+        const nombre = prod?.nombre || 'Producto';
+        const key = prod?.id || nombre;
+        const cant = Number(item.cantidad) || 1;
+        const precio = Number(item.precio_usd) || Number(prod?.precio_usd) || 0;
+        const subtotal = Number(item.subtotal_usd) || (cant * precio);
+        const img = prod?.imagen_url || null;
+
+        if (!map.has(key)) {
+          map.set(key, {
+            id: key,
+            nombre,
+            precio,
+            imagen_url: img,
+            totalVendidos: 0,
+            totalIngresos: 0,
+            pedidosCount: 0,
+          });
+        }
+        const entry = map.get(key);
+        entry.totalVendidos += cant;
+        entry.totalIngresos += subtotal;
+        entry.pedidosCount += 1;
+        if (!entry.imagen_url && img) entry.imagen_url = img;
+      });
+    });
+
+    return Array.from(map.values())
+      .sort((a, b) => b.totalVendidos - a.totalVendidos || b.totalIngresos - a.totalIngresos);
+  }, [pedidos]);
+
+  const maxVendidos = topProductosVendidos[0]?.totalVendidos || 1;
 
   // ── Cargar pedidos para gestión ─────────────────────────────────
   const fetchGPedidos = useCallback(async () => {
@@ -478,18 +572,592 @@ export default function ComercioPanel({ session }) {
     }
   }, []);
 
+  // ── Helper para cargar un pedido individual con sus relaciones ────
+  const fetchSingleOrder = useCallback(async (orderId) => {
+    try {
+      const { data, error } = await supabase
+        .from('pedidos_entregas')
+        .select(`
+          id, estado, total_usd, direccion_entrega, created_at, updated_at, repartidor_id,
+          confirmacion_cliente, valoracion,
+          profiles!pedidos_entregas_cliente_id_fkey(nombre_completo, telefono),
+          repartidores_datos (
+            id, vehiculo, placa, disponible, tipos_vehiculo_id,
+            tipos_vehiculo ( id, nombre, capacidad_peso_kg ),
+            profiles ( id, nombre_completo, telefono )
+          ),
+          pedido_items (
+            id, cantidad, precio_usd, subtotal_usd,
+            productos ( id, nombre, imagen_url )
+          ),
+          reportes_pago ( metodo, estado, referencia, monto_bs, monto_usd )
+        `)
+        .eq('id', orderId)
+        .maybeSingle();
+
+      if (!error && data) return data;
+    } catch (err) {
+      console.warn('Error al obtener datos del pedido:', err);
+    }
+    return null;
+  }, []);
+
+  // ── Disparar alerta de Nuevo Pedido Hecho ────────────────────────
+  const notifyNuevoPedido = useCallback((pedido) => {
+    if (!pedido?.id) return;
+    // Si ya fue alertado previamente o ya fue leído, NO repetir
+    if (hasComercioBeenAlerted(pedido.id, 'nuevo') || isOrderRead(pedido.id, 'nuevo')) return;
+
+    // Marcar INMEDIATAMENTE como alertado
+    markComercioAlerted(pedido.id, 'nuevo');
+    knownOrdersRef.current.set(pedido.id, pedido.estado || 'pendiente');
+
+    // 1. Sonido alegre de caja / retail una sola vez
+    playNewOrderSound();
+
+    const clientName = pedido.profiles?.nombre_completo || 'Cliente';
+    const totalUsd = Number(pedido.total_usd || 0).toFixed(2);
+    const shortId = pedido.id.slice(0, 8);
+    const nowStr = new Date().toISOString();
+    const toastId = `toast-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+
+    // 2. Toast emergente flotante (evitando duplicar el mismo pedido)
+    const toastItem = {
+      id: toastId,
+      tipo: 'nuevo',
+      title: `¡Nuevo Pedido Hecho! #${shortId}`,
+      desc: `De ${clientName} · ${pedido.direccion_entrega || 'Dirección no especificada'}`,
+      total: pedido.total_usd,
+      orderId: pedido.id,
+      pedido,
+      timestamp: nowStr,
+    };
+    setAlertToasts((prev) => {
+      if (prev.some((t) => t.orderId === pedido.id && t.tipo === 'nuevo')) return prev;
+      return [toastItem, ...prev.slice(0, 2)];
+    });
+
+    // 3. Notificación persistente en el centro de alertas
+    const notifItem = {
+      id: `notif-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      tipo: 'nuevo',
+      title: `Nuevo Pedido #${shortId}`,
+      desc: `Cliente: ${clientName} · ${pedido.direccion_entrega || 'Sin dirección'}`,
+      total: pedido.total_usd,
+      orderId: pedido.id,
+      pedido,
+      timestamp: nowStr,
+      unread: true,
+    };
+    setAlertNotifications((prev) => [notifItem, ...prev.slice(0, 49)]);
+
+    // 4. Notificación de escritorio nativa
+    triggerDesktopNotification({
+      title: `🛍️ ¡Nuevo Pedido Recibido! (#${shortId})`,
+      body: `Cliente: ${clientName} · Total: $${totalUsd} USD`,
+      onClick: () => {
+        setActiveTab('pedidos');
+        setPedidoDetalle(pedido);
+      },
+    });
+
+    // Auto-descartar toast a los 8 segundos
+    setTimeout(() => {
+      setAlertToasts((prev) => prev.filter((t) => t.id !== toastId));
+    }, 8000);
+
+    // Actualizar pedidos y ventas
+    fetchGPedidos();
+    fetchVentas();
+  }, [fetchGPedidos, fetchVentas]);
+
+  // ── Disparar alerta de Pedido Entregado ──────────────────────────
+  const notifyPedidoEntregado = useCallback((pedido) => {
+    if (!pedido?.id) return;
+    // Si ya fue alertado previamente o ya fue leído, NO repetir
+    if (hasComercioBeenAlerted(pedido.id, 'entregado') || isOrderRead(pedido.id, 'entregado')) return;
+
+    // Marcar INMEDIATAMENTE como alertado
+    markComercioAlerted(pedido.id, 'entregado');
+    knownOrdersRef.current.set(pedido.id, 'entregado');
+
+    // 1. Sonido de entrega completada una sola vez
+    playOrderDeliveredSound();
+
+    const clientName = pedido.profiles?.nombre_completo || 'Cliente';
+    const totalUsd = Number(pedido.total_usd || 0).toFixed(2);
+    const shortId = pedido.id.slice(0, 8);
+    const nowStr = new Date().toISOString();
+    const toastId = `toast-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+
+    // 2. Toast emergente flotante (evitando duplicar el mismo pedido)
+    const toastItem = {
+      id: toastId,
+      tipo: 'entregado',
+      title: `¡Pedido Entregado con Éxito! #${shortId}`,
+      desc: `El pedido de ${clientName} ha sido entregado exitosamente.`,
+      total: pedido.total_usd,
+      orderId: pedido.id,
+      pedido,
+      timestamp: nowStr,
+    };
+    setAlertToasts((prev) => {
+      if (prev.some((t) => t.orderId === pedido.id && t.tipo === 'entregado')) return prev;
+      return [toastItem, ...prev.slice(0, 2)];
+    });
+
+    // 3. Notificación persistente
+    const notifItem = {
+      id: `notif-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      tipo: 'entregado',
+      title: `Pedido Entregado #${shortId}`,
+      desc: `Entregado a ${clientName} · Total: $${totalUsd} USD`,
+      total: pedido.total_usd,
+      orderId: pedido.id,
+      pedido,
+      timestamp: nowStr,
+      unread: true,
+    };
+    setAlertNotifications((prev) => [notifItem, ...prev.slice(0, 49)]);
+
+    // 4. Notificación de escritorio
+    triggerDesktopNotification({
+      title: `✅ ¡Pedido Entregado! (#${shortId})`,
+      body: `El pedido de ${clientName} ($${totalUsd} USD) fue entregado con éxito.`,
+      onClick: () => {
+        setActiveTab('pedidos');
+        setPedidoDetalle(pedido);
+      },
+    });
+
+    // Auto-descartar toast a los 8 segundos
+    setTimeout(() => {
+      setAlertToasts((prev) => prev.filter((t) => t.id !== toastId));
+    }, 8000);
+
+    // Actualizar pedidos y ventas
+    fetchGPedidos();
+    fetchVentas();
+  }, [fetchGPedidos, fetchVentas]);
+
+  // ── Ver detalle de pedido desde una alerta o notificación ────────
+  const handleViewOrderFromAlert = useCallback(async (pedido, orderId, tipo) => {
+    setActiveTab('pedidos');
+    const targetId = pedido?.id || orderId;
+    if (targetId) {
+      markOrderAsRead(targetId, tipo || pedido?.tipo || (pedido?.estado === 'entregado' ? 'entregado' : 'nuevo'));
+      setAlertNotifications((prev) => prev.filter((n) => n.orderId !== targetId));
+      setAlertToasts((prev) => prev.filter((t) => t.orderId !== targetId));
+    }
+    if (pedido?.id && pedido.pedido_items) {
+      setPedidoDetalle(pedido);
+      return;
+    }
+    if (!targetId) return;
+
+    const inList = gPedidos.find((p) => p.id === targetId);
+    if (inList) {
+      setPedidoDetalle(inList);
+      return;
+    }
+
+    const fetched = await fetchSingleOrder(targetId);
+    if (fetched) {
+      setPedidoDetalle(fetched);
+    }
+  }, [gPedidos, fetchSingleOrder]);
+
+  const handleMarkItemAsRead = useCallback((orderId, tipo = 'nuevo') => {
+    if (!orderId) return;
+    markOrderAsRead(orderId, tipo);
+    setAlertNotifications((prev) => prev.filter((n) => n.orderId !== orderId));
+    setAlertToasts((prev) => prev.filter((t) => t.orderId !== orderId));
+  }, []);
+
+  const handleMarkAllAsRead = useCallback(() => {
+    markAllOrdersAsRead(alertNotifications);
+    setAlertNotifications([]);
+    setAlertToasts([]);
+  }, [alertNotifications]);
+
+  // ── Carga inicial de pedidos y repartidores ───────────────────────
   useEffect(() => {
-    if (perfil?.id && activeTab === 'pedidos') {
+    if (perfil?.id) {
       fetchGPedidos();
       fetchRepartidoresActivos();
     }
-  }, [fetchGPedidos, fetchRepartidoresActivos, perfil, activeTab]);
+  }, [fetchGPedidos, fetchRepartidoresActivos, perfil]);
+
+  // ── Abrir pedido si se hizo clic desde la alerta del Dashboard ────
+  useEffect(() => {
+    const pendingOrderId = localStorage.getItem('levant_comercio_selected_order');
+    if (pendingOrderId && perfil?.id) {
+      localStorage.removeItem('levant_comercio_selected_order');
+      handleViewOrderFromAlert(null, pendingOrderId);
+    }
+  }, [perfil?.id, handleViewOrderFromAlert]);
+
+  // ── Sincronizar pedidos con alertas: SOLO los pedidos NO LEÍDOS aparecen ──
+  useEffect(() => {
+    if (!gPedidos || gPedidos.length === 0) {
+      setAlertNotifications([]);
+      return;
+    }
+
+    const readIds = getReadOrderIds();
+    const notifs = [];
+    gPedidos.forEach((p) => {
+      const estadoNorm = (p.estado || '').toLowerCase();
+      const isPendiente = estadoNorm === 'pendiente' || estadoNorm === 'confirmado';
+      const isEntregado = estadoNorm === 'entregado' || p.confirmacion_cliente === true;
+      const clientName = p.profiles?.nombre_completo || 'Cliente';
+      const shortId = p.id ? p.id.slice(0, 8) : '--------';
+
+      if (isPendiente && !readIds.has(p.id)) {
+        notifs.push({
+          id: `cp-order-pend-${p.id}`,
+          orderId: p.id,
+          tipo: 'nuevo',
+          title: `Pedido Hecho #${shortId}`,
+          desc: `Cliente: ${clientName} · ${p.direccion_entrega || 'Sin dirección'}`,
+          total: p.total_usd,
+          pedido: p,
+          timestamp: p.created_at,
+          unread: true,
+        });
+      } else if (isEntregado && !readIds.has(`${p.id}-entregado`)) {
+        notifs.push({
+          id: `cp-order-entr-${p.id}`,
+          orderId: p.id,
+          tipo: 'entregado',
+          title: `Pedido Entregado #${shortId}`,
+          desc: `Entregado exitosamente a ${clientName}`,
+          total: p.total_usd,
+          pedido: p,
+          timestamp: p.updated_at || p.created_at,
+          unread: true,
+        });
+      }
+    });
+
+    setAlertNotifications(notifs);
+  }, [gPedidos]);
+
+  // ── Escuchar cambios de lectura de alertas en tiempo real ────────
+  useEffect(() => {
+    const handleReadUpdated = () => {
+      const readIds = getReadOrderIds();
+      setAlertNotifications((prev) =>
+        prev.filter((n) => {
+          const key = n.tipo === 'entregado' ? `${n.orderId}-entregado` : n.orderId;
+          return !readIds.has(key);
+        })
+      );
+      setAlertToasts((prev) =>
+        prev.filter((t) => {
+          const key = t.tipo === 'entregado' ? `${t.orderId}-entregado` : t.orderId;
+          return !readIds.has(key);
+        })
+      );
+    };
+
+    window.addEventListener('levant_read_orders_updated', handleReadUpdated);
+    return () => window.removeEventListener('levant_read_orders_updated', handleReadUpdated);
+  }, []);
+
+  // ── Auto-asignación SILENCIOSA (sin confirm) al registrar pago ───
+  const silentAutoAssign = useCallback(async (pedido) => {
+    if (!pedido?.id || !perfil?.id) return;
+    // Si ya tiene repartidor asignado o ya se está procesando, no hacer nada
+    if (pedido.repartidor_id) return;
+    if (autoAssigningSetRef.current.has(pedido.id)) return;
+    autoAssigningSetRef.current.add(pedido.id);
+
+    // ── REGLA DE NEGOCIO: No asignar repartidor hasta que se registre el pago con comprobante ──
+    let tienePago = Boolean(pedido.reportes_pago && pedido.reportes_pago.some(p => Boolean(p.comprobante_url)));
+    if (!tienePago) {
+      try {
+        const { data: pagos } = await supabase
+          .from('reportes_pago')
+          .select('id, comprobante_url')
+          .eq('pedido_id', pedido.id);
+        tienePago = Boolean(pagos && pagos.length > 0 && pagos.some(p => Boolean(p.comprobante_url)));
+      } catch (errP) {
+        console.warn('Error verificando pago con comprobante para auto-asignación:', errP);
+      }
+    }
+
+    if (!tienePago) {
+      // Liberar para cuando el cliente registre el pago y comprobante más adelante
+      autoAssigningSetRef.current.delete(pedido.id);
+      return;
+    }
+
+    let pesoTotal = calcularPesoTotalPedido(pedido);
+
+    // Si pedido_items no viene en el payload (ej. en evento realtime), consultar items para tener el peso real
+    if (!pedido.pedido_items || pedido.pedido_items.length === 0) {
+      try {
+        const { data: items } = await supabase
+          .from('pedido_items')
+          .select('cantidad, productos ( peso_kg )')
+          .eq('pedido_id', pedido.id);
+
+        if (items && items.length > 0) {
+          pesoTotal = items.reduce((sum, item) => {
+            const qty = Number(item.cantidad) || 1;
+            const pUnit = Number(item.productos?.peso_kg) || 1.0;
+            return sum + (qty * pUnit);
+          }, 0);
+          pesoTotal = Number(pesoTotal.toFixed(2));
+        }
+      } catch (err) {
+        console.warn('[AutoAsign] Error calculando peso desde items:', err);
+      }
+    }
+
+    // Buscar el mejor repartidor disponible según capacidad de vehículo y peso del producto
+    const seleccionado = await buscarMejorRepartidorDisponible(pesoTotal);
+    if (!seleccionado) {
+      console.warn('[AutoAsign] No hay repartidores disponibles para el pedido', pedido.id, `(peso: ${pesoTotal}kg)`);
+      return;
+    }
+
+    console.log('[AutoAsign] Asignando automáticamente a', seleccionado.profiles?.nombre_completo, 'al pedido', pedido.id);
+
+    // Asignar repartidor en pedidos_entregas
+    const { error: assignErr } = await supabase
+      .from('pedidos_entregas')
+      .update({ repartidor_id: seleccionado.id, updated_at: new Date().toISOString() })
+      .eq('id', pedido.id);
+
+    if (assignErr) {
+      console.error('[AutoAsign] Error asignando repartidor:', assignErr);
+      return;
+    }
+
+    // Emitir alerta inmediata al repartidor asignado (multicanal: BroadcastChannel, CustomEvent y Realtime)
+    notifyRepartidorAsignado({
+      orderId: pedido.id,
+      repartidorId: seleccionado.id,
+      orderData: pedido
+    });
+
+    // Marcar repartidor como no disponible
+    await supabase
+      .from('repartidores_datos')
+      .update({ disponible: false })
+      .eq('id', seleccionado.id);
+
+    // Actualizar estado local
+    setRepartidoresActivos(prev => prev.map(r =>
+      r.id === seleccionado.id ? { ...r, disponible: false } : r
+    ));
+
+    // Refrescar lista de pedidos
+    fetchGPedidos();
+  }, [perfil?.id, fetchGPedidos]);
+
+  // ── Sincronización en Tiempo Real y Sondeo Inteligente ───────────
+  useEffect(() => {
+    if (!perfil?.id) return;
+
+    let isMounted = true;
+
+    // 1. Carga inicial de órdenes para alimentar el mapa de estados sin alertar pedidos viejos
+    const initializeKnownOrders = async () => {
+      try {
+        const { data } = await supabase
+          .from('pedidos_entregas')
+          .select('id, estado, confirmacion_cliente')
+          .eq('comercio_id', perfil.id)
+          .order('created_at', { ascending: false })
+          .limit(100);
+
+        if (isMounted && data) {
+          data.forEach((p) => {
+            const effectiveStatus = (p.estado === 'entregado' || p.confirmacion_cliente) ? 'entregado' : (p.estado || 'pendiente');
+            knownOrdersRef.current.set(p.id, effectiveStatus);
+            // Marcar pedidos pre-existentes como ya alertados para que no suenen ni alerten en bucle al abrir/recargar
+            markComercioAlerted(p.id, 'nuevo');
+            if (effectiveStatus === 'entregado') {
+              markComercioAlerted(p.id, 'entregado');
+            }
+          });
+          initialLoadedRef.current = true;
+        }
+      } catch (err) {
+        console.warn('Error inicializando estados de pedidos:', err);
+      }
+    };
+
+    initializeKnownOrders();
+
+    // 2. Canal Supabase Realtime (INSERT y UPDATE en tiempo real)
+    const channel = supabase
+      .channel(`comercio-pedidos-rt-${perfil.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'pedidos_entregas',
+          filter: `comercio_id=eq.${perfil.id}`
+        },
+        async (payload) => {
+          if (!isMounted || !payload.new) return;
+          if (hasComercioBeenAlerted(payload.new.id, 'nuevo') || isOrderRead(payload.new.id, 'nuevo')) return;
+          knownOrdersRef.current.set(payload.new.id, payload.new.estado || 'pendiente');
+          const fullOrder = await fetchSingleOrder(payload.new.id);
+          const order = fullOrder || payload.new;
+          notifyNuevoPedido(order);
+          // → Auto-asignar repartidor SOLO si ya tiene pago registrado
+          const tienePago = order.reportes_pago && order.reportes_pago.length > 0;
+          if (tienePago && !order.repartidor_id) {
+            silentAutoAssign(order);
+          }
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'reportes_pago',
+        },
+        async (payload) => {
+          if (!isMounted || !payload.new?.pedido_id) return;
+          // Refrescar lista de pedidos cuando el cliente registra el pago
+          fetchGPedidos();
+          const fullOrder = await fetchSingleOrder(payload.new.pedido_id);
+          if (fullOrder && !fullOrder.repartidor_id && fullOrder.estado !== 'entregado' && fullOrder.estado !== 'cancelado') {
+            console.log('[Realtime Pago] Pago registrado para pedido', fullOrder.id, '→ Auto-asignando repartidor...');
+            silentAutoAssign(fullOrder);
+          }
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'pedidos_entregas',
+          filter: `comercio_id=eq.${perfil.id}`
+        },
+        async (payload) => {
+          if (!isMounted || !payload.new) return;
+          const newRow = payload.new;
+          const prevEstado = knownOrdersRef.current.get(newRow.id);
+          const isEntregado = newRow.estado === 'entregado' || newRow.confirmacion_cliente === true;
+
+          if (isEntregado && prevEstado !== 'entregado') {
+            knownOrdersRef.current.set(newRow.id, 'entregado');
+            if (hasComercioBeenAlerted(newRow.id, 'entregado') || isOrderRead(newRow.id, 'entregado')) {
+              return;
+            }
+            const fullOrder = await fetchSingleOrder(newRow.id);
+            notifyPedidoEntregado(fullOrder || newRow);
+          } else {
+            knownOrdersRef.current.set(newRow.id, newRow.estado);
+            fetchGPedidos();
+          }
+        }
+      )
+      .subscribe();
+
+    // 3. Respaldo de sondeo inteligente periódico (cada 4 segundos)
+    const pollInterval = setInterval(async () => {
+      if (!isMounted || !perfil?.id || !initialLoadedRef.current) return;
+      try {
+        const { data: latestOrders } = await supabase
+          .from('pedidos_entregas')
+          .select(`
+            id, estado, total_usd, direccion_entrega, created_at, updated_at, repartidor_id,
+            confirmacion_cliente, valoracion,
+            profiles!pedidos_entregas_cliente_id_fkey(nombre_completo, telefono),
+            pedido_items ( id, cantidad, precio_usd, subtotal_usd, productos ( id, nombre, imagen_url ) ),
+            reportes_pago ( metodo, estado, referencia, monto_bs, monto_usd )
+          `)
+          .eq('comercio_id', perfil.id)
+          .order('created_at', { ascending: false })
+          .limit(30);
+
+        if (!isMounted || !latestOrders) return;
+
+        for (const ord of latestOrders) {
+          const prevStatus = knownOrdersRef.current.get(ord.id);
+          const isEntregado = ord.estado === 'entregado' || ord.confirmacion_cliente === true;
+          const tienePago = ord.reportes_pago && ord.reportes_pago.length > 0;
+
+          if (prevStatus === undefined) {
+            // Nuevo pedido hecho detectado: REGISTRAR INMEDIATAMENTE para que no vuelva a entrar en 4 segundos
+            knownOrdersRef.current.set(ord.id, ord.estado || 'pendiente');
+            if (!hasComercioBeenAlerted(ord.id, 'nuevo') && !isOrderRead(ord.id, 'nuevo')) {
+              notifyNuevoPedido(ord);
+              // → Auto-asignar repartidor ÚNICAMENTE si ya tiene pago registrado
+              if (tienePago && !ord.repartidor_id) silentAutoAssign(ord);
+            }
+          } else if (isEntregado && prevStatus !== 'entregado') {
+            // Pedido entregado detectado: REGISTRAR INMEDIATAMENTE para que no repita
+            knownOrdersRef.current.set(ord.id, 'entregado');
+            if (!hasComercioBeenAlerted(ord.id, 'entregado') && !isOrderRead(ord.id, 'entregado')) {
+              notifyPedidoEntregado(ord);
+            }
+          } else {
+            knownOrdersRef.current.set(ord.id, ord.estado);
+            // Si el pedido ya existía, acaba de recibir pago y no tiene repartidor, auto-asignar
+            if (tienePago && !ord.repartidor_id && ord.estado !== 'entregado' && ord.estado !== 'cancelado') {
+              silentAutoAssign(ord);
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('Error en sondeo de pedidos:', err);
+      }
+    }, 4000);
+
+    // 4. Socket.io broadcast listener (si el servidor de sockets está activo)
+    let socket = null;
+    try {
+      socket = getSocket();
+      if (!socket.connected) socket.connect();
+      const onBroadcast = ({ orderId, nuevoEstado }) => {
+        if (!isMounted) return;
+        if (nuevoEstado === 'entregado') {
+          const prevStatus = knownOrdersRef.current.get(orderId);
+          if (prevStatus && prevStatus !== 'entregado') {
+            fetchSingleOrder(orderId).then((full) => {
+              if (full && full.comercio_id === perfil.id) {
+                notifyPedidoEntregado(full);
+              }
+            });
+          }
+        }
+      };
+      socket.on('order:broadcast_status', onBroadcast);
+    } catch {
+      // Ignorar si sockets no están disponibles
+    }
+
+    return () => {
+      isMounted = false;
+      clearInterval(pollInterval);
+      supabase.removeChannel(channel);
+      if (socket) {
+        socket.off('order:broadcast_status');
+      }
+    };
+  }, [perfil?.id, notifyNuevoPedido, notifyPedidoEntregado, fetchGPedidos, fetchSingleOrder, silentAutoAssign]);
 
   // ── Asignar repartidor a pedido ─────────────────────────────────
   const assignRepartidor = async (pedidoId, repartidorId) => {
     setAssigningRepartidor(pedidoId);
     try {
       const repIdVal = (repartidorId && repartidorId.trim() !== '') ? repartidorId : null;
+
+      // Buscar el pedido actual para saber si había un repartidor anterior
+      const pedidoActual = gPedidos.find(p => p.id === pedidoId);
+      const repAnteriorId = pedidoActual?.repartidor_id ?? null;
 
       const { error } = await supabase
         .from('pedidos_entregas')
@@ -506,16 +1174,48 @@ export default function ComercioPanel({ session }) {
         return;
       }
 
+      // Notificar al repartidor asignado de inmediato
+      if (repIdVal) {
+        notifyRepartidorAsignado({
+          orderId: pedidoId,
+          repartidorId: repIdVal,
+          orderData: pedidoActual
+        });
+      }
+
+      // ── Actualizar disponibilidad automáticamente ──────────────
+      // Si se asigna un nuevo repartidor → marcarlo como NO disponible
+      if (repIdVal) {
+        await supabase
+          .from('repartidores_datos')
+          .update({ disponible: false })
+          .eq('id', repIdVal);
+      }
+      // Si había un repartidor anterior y fue reemplazado/removido → restaurar disponibilidad
+      if (repAnteriorId && repAnteriorId !== repIdVal) {
+        await supabase
+          .from('repartidores_datos')
+          .update({ disponible: true })
+          .eq('id', repAnteriorId);
+      }
+
       const repObj = repIdVal ? repartidoresActivos.find(r => r.id === repIdVal) : null;
       const formattedRep = repObj ? {
         id: repObj.id,
         vehiculo: repObj.vehiculo,
         placa: repObj.placa,
-        disponible: repObj.disponible,
+        disponible: false,
         tipos_vehiculo_id: repObj.tipos_vehiculo_id,
         tipos_vehiculo: repObj.tipos_vehiculo,
         profiles: repObj.profiles
       } : null;
+
+      // Actualizar estado local de repartidoresActivos para reflejar la nueva disponibilidad
+      setRepartidoresActivos(prev => prev.map(r => {
+        if (r.id === repIdVal) return { ...r, disponible: false };
+        if (r.id === repAnteriorId && repAnteriorId !== repIdVal) return { ...r, disponible: true };
+        return r;
+      }));
 
       setGPedidos(prev => prev.map(p => {
         if (p.id !== pedidoId) return p;
@@ -541,72 +1241,45 @@ export default function ComercioPanel({ session }) {
     }
   };
 
-  // ── Selección manual de repartidor con advertencia de sobrepeso ──
+  // ── Selección manual de repartidor (sin diálogo de confirmación) ──
   const handleSelectRepartidor = async (pedidoId, repartidorId, ped) => {
     if (!repartidorId) {
       await assignRepartidor(pedidoId, '');
       return;
     }
-    const pesoTotal = calcularPesoTotalPedido(ped);
-    const rep = repartidoresActivos.find(r => r.id === repartidorId);
-    if (rep) {
-      const cap = getCapacidadRepartidor(rep);
-      if (cap < pesoTotal) {
-        const confirmar = window.confirm(
-          `⚠️ ADVERTENCIA DE CAPACIDAD DE VEHÍCULO:\n\n` +
-          `Este pedido pesa ${pesoTotal} kg, pero el repartidor "${rep.profiles?.nombre_completo || 'Repartidor'}" ` +
-          `cuenta con ${getVehiculoNombreRepartidor(rep)} (capacidad máxima: ${cap} kg).\n\n` +
-          `¿Deseas asignarlo de todas formas?`
-        );
-        if (!confirmar) return;
-      }
-    }
+    // Asignación directa sin ventanas emergentes de confirmación
     await assignRepartidor(pedidoId, repartidorId);
   };
 
-  // ── Auto-asignación inteligente de repartidor según el peso ──────
+  // ── Auto-asignación inteligente de repartidor según peso y vehículo ──────
   const autoAssignRepartidorPorPeso = async (ped) => {
-    const pesoTotal = calcularPesoTotalPedido(ped);
-    const reqVeh = getTipoVehiculoRequerido(pesoTotal);
-
-    // Filtrar candidatos cuya capacidad cubra el peso total del pedido
-    const candidatosAptos = repartidoresActivos.filter(r => {
-      const cap = getCapacidadRepartidor(r);
-      return cap >= pesoTotal;
-    });
-
-    if (candidatosAptos.length === 0) {
-      alert(
-        `⚠️ Capacidad insuficiente en la flota:\n\n` +
-        `Este pedido pesa ${pesoTotal} kg y requiere un vehículo tipo "${reqVeh.nombre}" (mín. ${pesoTotal} kg).\n` +
-        `No hay repartidores disponibles con capacidad suficiente registrada.`
-      );
+    // ── REGLA DE NEGOCIO: No asignar repartidor hasta que se registre el pago ──
+    const tienePago = (ped.reportes_pago && ped.reportes_pago.length > 0);
+    if (!tienePago) {
+      alert('⚠️ No se puede asignar repartidor: El cliente aún no ha registrado el comprobante de pago de este pedido.');
       return;
     }
 
-    // Priorizar repartidores disponibles (activos)
-    const disponibles = candidatosAptos.filter(r => r.disponible);
-    const pool = disponibles.length > 0 ? disponibles : candidatosAptos;
+    const pesoTotal = calcularPesoTotalPedido(ped);
+    const reqVeh = getTipoVehiculoRequerido(pesoTotal);
 
-    // Ordenar de menor a mayor capacidad para asignar el vehículo más eficiente
-    pool.sort((a, b) => getCapacidadRepartidor(a) - getCapacidadRepartidor(b));
+    setAssigningRepartidor(ped.id);
+    try {
+      // Buscar directamente en base de datos para obtener el repartidor óptimo disponible
+      const seleccionado = await buscarMejorRepartidorDisponible(pesoTotal);
 
-    const seleccionado = pool[0];
-    const capSeleccionado = getCapacidadRepartidor(seleccionado);
-    const vehiculoNombre = getVehiculoNombreRepartidor(seleccionado);
+      if (!seleccionado) {
+        console.warn(`[AutoAsign] No hay repartidores disponibles para ${pesoTotal} kg.`);
+        alert(`No hay repartidores disponibles en línea en este momento para vehículo ${reqVeh.nombre} (${pesoTotal} kg).`);
+        return;
+      }
 
-    const confirmar = window.confirm(
-      `📦 Pedido: #${ped.id.slice(0, 8)} (${pesoTotal} kg)\n` +
-      `Vehículo requerido: ${reqVeh.icon} ${reqVeh.nombre}\n\n` +
-      `🛵 Repartidor asignado automáticamente:\n` +
-      `• Nombre: ${seleccionado.profiles?.nombre_completo || 'Repartidor'}\n` +
-      `• Vehículo: ${vehiculoNombre} (Capacidad: ${capSeleccionado} kg)\n` +
-      `• Estado: ${seleccionado.disponible ? '🟢 Activo / Disponible' : '⚪ En servicio'}\n\n` +
-      `¿Confirmar asignación?`
-    );
-
-    if (confirmar) {
+      // Asignar directamente sin confirmación
       await assignRepartidor(ped.id, seleccionado.id);
+    } catch (err) {
+      console.error('Error en auto-asignación:', err);
+    } finally {
+      setAssigningRepartidor(null);
     }
   };
 
@@ -622,6 +1295,19 @@ export default function ComercioPanel({ session }) {
       console.error('Error actualizando estado:', error);
       alert('Error al actualizar el estado: ' + error.message);
     } else {
+      // Si el pedido se marca entregado o cancelado, liberar la disponibilidad del repartidor
+      const pedidoObj = gPedidos.find(p => p.id === pedidoId);
+      if (pedidoObj?.repartidor_id && (nuevoEstado === 'entregado' || nuevoEstado === 'cancelado')) {
+        await supabase
+          .from('repartidores_datos')
+          .update({ disponible: true })
+          .eq('id', pedidoObj.repartidor_id);
+        
+        setRepartidoresActivos(prev => prev.map(r => 
+          r.id === pedidoObj.repartidor_id ? { ...r, disponible: true } : r
+        ));
+      }
+
       setGPedidos(prev => prev.map(p => p.id === pedidoId ? { ...p, estado: nuevoEstado } : p));
       if (pedidoDetalle?.id === pedidoId) setPedidoDetalle(prev => ({ ...prev, estado: nuevoEstado }));
     }
@@ -735,13 +1421,72 @@ export default function ComercioPanel({ session }) {
   // ── JSX ─────────────────────────────────────────────────────────
   return (
     <div className="cp-wrapper">
-      {/* Tabs */}
-      <div className="cp-tabs" role="tablist">
-        {[['perfil','🏪 Mi Comercio'],['productos','📦 Productos'],['pedidos','📋 Pedidos'],['ventas','💰 Ventas']].map(([id, label]) => (
-          <button key={id} id={`cptab-${id}`} role="tab" aria-selected={activeTab === id}
-            className={`cp-tab ${activeTab === id ? 'cp-tab--active' : ''}`}
-            onClick={() => setActiveTab(id)}>{label}</button>
-        ))}
+      {/* Toasts de Alertas Flotantes */}
+      <ComercioAlertToasts
+        toasts={alertToasts}
+        onDismiss={(id, orderId, tipo) => {
+          if (orderId) {
+            handleMarkItemAsRead(orderId, tipo);
+          } else {
+            setAlertToasts((prev) => prev.filter((t) => t.id !== id));
+          }
+        }}
+        onViewOrder={handleViewOrderFromAlert}
+      />
+
+      {/* Tabs de Navegación y Centro de Alertas */}
+      <div className="cp-tabs-header-row">
+        <div className="cp-tabs-inner" role="tablist">
+          {[
+            ['perfil', '🏪 Mi Comercio'],
+            ['productos', '📦 Productos'],
+            ['pedidos', '📋 Pedidos'],
+            ['ventas', '💰 Ventas'],
+          ].map(([id, label]) => {
+            const isPedidos = id === 'pedidos';
+            const pedidosPendientesCount = gPedidos.filter(
+              (p) => p.estado === 'pendiente' || p.estado === 'confirmado'
+            ).length;
+            const tieneAlertasNuevas = alertNotifications.some(
+              (n) => n.tipo === 'nuevo' && n.unread
+            );
+
+            return (
+              <button
+                key={id}
+                id={`cptab-${id}`}
+                role="tab"
+                aria-selected={activeTab === id}
+                className={`cp-tab ${activeTab === id ? 'cp-tab--active' : ''}`}
+                onClick={() => setActiveTab(id)}
+              >
+                <span>{label}</span>
+                {isPedidos && (pedidosPendientesCount > 0 || tieneAlertasNuevas) && (
+                  <span
+                    className="cp-tab-counter-badge"
+                    title={`${pedidosPendientesCount} pedidos pendientes o nuevos`}
+                  >
+                    {pedidosPendientesCount > 0 ? pedidosPendientesCount : '●'}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="cp-alerts-controls">
+          <ComercioAlertCenter
+            notifications={alertNotifications}
+            unreadCount={alertNotifications.length}
+            isOpen={showNotifCenter}
+            onToggleOpen={() => setShowNotifCenter((prev) => !prev)}
+            onClose={() => setShowNotifCenter(false)}
+            onMarkAllAsRead={handleMarkAllAsRead}
+            onMarkItemAsRead={handleMarkItemAsRead}
+            onClearHistory={handleMarkAllAsRead}
+            onViewOrder={handleViewOrderFromAlert}
+          />
+        </div>
       </div>
 
       {/* ═══ TAB: PERFIL ═══ */}
@@ -949,7 +1694,14 @@ export default function ComercioPanel({ session }) {
                   const vehReq = getTipoVehiculoRequerido(pesoTotal);
 
                   return (
-                    <div key={ped.id} className="cp-pedido-card" onClick={() => setPedidoDetalle(ped)}>
+                    <div
+                      key={ped.id}
+                      className="cp-pedido-card"
+                      onClick={() => {
+                        setPedidoDetalle(ped);
+                        markOrderAsRead(ped.id, ped.estado === 'entregado' ? 'entregado' : 'nuevo');
+                      }}
+                    >
                       <div className="cp-pedido-card-top">
                         <div className="cp-pedido-card-id">#{ped.id.slice(0,8)}</div>
                         <div className="cp-pedido-card-badges">
@@ -1000,11 +1752,12 @@ export default function ComercioPanel({ session }) {
                           <button
                             type="button"
                             className="cp-btn-auto-peso"
-                            title={`Asignar repartidor automáticamente para ${pesoTotal} kg`}
-                            disabled={assigningRepartidor === ped.id}
+                            title={tienePago ? `Asignar repartidor automáticamente para ${pesoTotal} kg` : 'Esperando que el cliente registre el pago de este pedido'}
+                            disabled={assigningRepartidor === ped.id || !tienePago}
                             onClick={() => autoAssignRepartidorPorPeso(ped)}
+                            style={!tienePago ? { opacity: 0.65, cursor: 'not-allowed' } : {}}
                           >
-                            ⚡ Auto por Peso
+                            {tienePago ? '⚡ Auto por Peso' : '⏳ Esperando Pago'}
                           </button>
                         )}
 
@@ -1371,6 +2124,116 @@ export default function ComercioPanel({ session }) {
                       <p className="cp-kpi-label">{k.label}</p>
                     </div>
                   ))}
+                </div>
+              )}
+
+              {/* Top Productos Más Vendidos */}
+              {topProductosVendidos.length > 0 && (
+                <div className="db-top-section db-top-section--comercio" style={{ margin: '1.25rem 0' }}>
+                  <div className="db-top-header">
+                    <div className="db-top-header-left">
+                      <div className="db-top-badge-title">
+                        <span className="db-top-header-icon">🔥</span>
+                        <h2 className="db-top-title">Top Productos Más Vendidos</h2>
+                      </div>
+                      <p className="db-top-sub">
+                        Artículos con mayor demanda y facturación en tu catálogo
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="db-top-grid">
+                    {topProductosVendidos.slice(0, 5).map((prod, idx) => {
+                      const rank = idx + 1;
+                      const isFirst = rank === 1;
+                      const isSecond = rank === 2;
+                      const isThird = rank === 3;
+                      const pct = Math.round((prod.totalVendidos / maxVendidos) * 100);
+
+                      return (
+                        <div
+                          key={prod.id || idx}
+                          className={`db-top-card ${isFirst ? 'db-top-card--first' : ''} ${isSecond ? 'db-top-card--second' : ''} ${isThird ? 'db-top-card--third' : ''}`}
+                        >
+                          <div className="db-top-card-rank-wrap">
+                            {isFirst && (
+                              <span className="db-top-rank-badge db-top-rank-badge--gold">
+                                👑 #1 Más Vendido
+                              </span>
+                            )}
+                            {isSecond && (
+                              <span className="db-top-rank-badge db-top-rank-badge--silver">
+                                🥈 #2 En Ventas
+                              </span>
+                            )}
+                            {isThird && (
+                              <span className="db-top-rank-badge db-top-rank-badge--bronze">
+                                🥉 #3 En Ventas
+                              </span>
+                            )}
+                            {!isFirst && !isSecond && !isThird && (
+                              <span className="db-top-rank-badge db-top-rank-badge--default">
+                                #{rank}
+                              </span>
+                            )}
+                          </div>
+
+                          <div className="db-top-card-content">
+                            <div className="db-top-img-wrap">
+                              {prod.imagen_url ? (
+                                <img src={prod.imagen_url} alt={prod.nombre} className="db-top-img" />
+                              ) : (
+                                <div className="db-top-img-fallback">
+                                  <span>📦</span>
+                                </div>
+                              )}
+                              {isFirst && <span className="db-top-first-glow" />}
+                            </div>
+
+                            <div className="db-top-card-info">
+                              <div className="db-top-card-main-meta">
+                                <h3 className="db-top-prod-name" title={prod.nombre}>
+                                  {prod.nombre}
+                                </h3>
+                                <span className="db-top-revenue-highlight">
+                                  ${prod.totalIngresos.toFixed(2)} USD generados
+                                </span>
+                              </div>
+
+                              <div className="db-top-stats-row">
+                                <div className="db-top-stat-chip db-top-stat-chip--qty-comercio">
+                                  <span className="db-top-stat-val">{prod.totalVendidos}</span>
+                                  <span className="db-top-stat-lbl">
+                                    {prod.totalVendidos === 1 ? 'ud. vendida' : 'uds. vendidas'}
+                                  </span>
+                                </div>
+                                <div className="db-top-stat-chip db-top-stat-chip--spent">
+                                  <span className="db-top-stat-val">${prod.totalIngresos.toFixed(2)}</span>
+                                  <span className="db-top-stat-lbl">ingresos</span>
+                                </div>
+                                <div className="db-top-stat-chip db-top-stat-chip--orders">
+                                  <span className="db-top-stat-val">{prod.pedidosCount}</span>
+                                  <span className="db-top-stat-lbl">
+                                    {prod.pedidosCount === 1 ? 'pedido' : 'pedidos'}
+                                  </span>
+                                </div>
+                              </div>
+
+                              <div className="db-top-progress-wrap" title={`Volumen de ventas: ${pct}% respecto al producto estrella`}>
+                                <div className="db-top-progress-bg">
+                                  <div
+                                    className="db-top-progress-fill db-top-progress-fill--comercio"
+                                    style={{ width: `${Math.max(pct, 8)}%` }}
+                                  />
+                                </div>
+                                <span className="db-top-progress-lbl">{pct}%</span>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
               )}
 

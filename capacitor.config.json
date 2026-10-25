@@ -1,0 +1,9 @@
+{
+  "appId": "com.levant.app",
+  "appName": "Levant",
+  "webDir": "dist",
+  "server": {
+    "androidScheme": "https"
+  },
+  "android": {}
+}

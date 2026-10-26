@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import { playNewOrderSound, triggerDesktopNotification } from '../components/comercio/comercioAlertSound';
+import { sendNativeNotification, clearNativeAppBadge } from '../lib/nativeNotifications';
 
 /**
  * usePedidosRealtime
@@ -47,12 +48,19 @@ export function usePedidosRealtime({
       playNewOrderSound();
     }
 
-    // 2. Notificación en escritorio
+    // 2. Notificación en escritorio y nativa en Android APK
     const shortId = orderData.id.slice(0, 8);
     const totalStr = orderData.total_usd ? ` por $${Number(orderData.total_usd).toFixed(2)} USD` : '';
     triggerDesktopNotification('🛍️ ¡Nuevo Pedido en Levant!', {
       body: `Pedido #${shortId}${totalStr}. Revisa tu panel para gestionarlo.`,
       tag: `nuevo-pedido-${orderData.id}`,
+    });
+
+    sendNativeNotification({
+      id: orderData.id,
+      title: '🛍️ ¡Nuevo Pedido en Levant!',
+      body: `Pedido #${shortId}${totalStr}. Revisa tu panel para gestionarlo.`,
+      data: { orderId: orderData.id },
     });
 
     // 3. Callback externo
@@ -127,6 +135,7 @@ export function usePedidosRealtime({
   const resetNotification = useCallback(() => {
     setHasNewOrder(false);
     setNewOrdersCount(0);
+    clearNativeAppBadge();
   }, []);
 
   return {

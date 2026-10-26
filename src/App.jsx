@@ -16,6 +16,7 @@ import ClienteAlertas    from './components/cliente/ClienteAlertas';
 import RepartidorAlertas from './components/repartidor/RepartidorAlertas';
 import PedidosRealtimeBadge from './components/common/PedidosRealtimeBadge';
 import { usePedidosRealtime } from './hooks/usePedidosRealtime';
+import { initNativeNotifications, clearNativeAppBadge } from './lib/nativeNotifications';
 
 import {
   LayoutDashboard,
@@ -247,6 +248,7 @@ export default function App() {
     const currentRol = perfil?.rol === 'comercio' ? (activeRolView || 'comercio') : (perfil?.rol ?? 'cliente');
     if (isOrderTabForRole(tabId, currentRol)) {
       resetNotification();
+      clearNativeAppBadge();
     }
   };
 
@@ -264,6 +266,7 @@ export default function App() {
     const currentRol = perfil?.rol === 'comercio' ? (activeRolView || 'comercio') : (perfil?.rol ?? 'cliente');
     setGlobalOrderToast(null);
     resetNotification();
+    clearNativeAppBadge();
     if (currentRol === 'repartidor') {
       handleSelectTab('pedidos');
     } else if (currentRol === 'comercio' || currentRol === 'admin') {
@@ -272,6 +275,11 @@ export default function App() {
       handleGoToTracking(orderId);
     }
   };
+
+  // ── Inicializar notificaciones nativas de Android / APK ─────────
+  useEffect(() => {
+    initNativeNotifications();
+  }, []);
 
   // ── Auth listener ───────────────────────────────────────────────
   useEffect(() => {

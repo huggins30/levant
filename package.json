@@ -16,6 +16,8 @@
   "dependencies": {
     "@capacitor/android": "^8.5.3",
     "@capacitor/core": "^8.5.3",
+    "@capacitor/local-notifications": "^8.3.1",
+    "@capawesome/capacitor-badge": "^8.0.4",
     "@supabase/supabase-js": "^2.116.0",
     "lucide-react": "^1.48.0",
     "react": "^19.2.8",

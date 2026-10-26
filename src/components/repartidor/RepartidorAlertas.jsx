@@ -9,6 +9,7 @@ import {
   isRepartidorSoundEnabled,
   setRepartidorSoundEnabled
 } from './repartidorAlertSound';
+import { sendNativeNotification } from '../../lib/nativeNotifications';
 import '../comercio/ComercioAlertas.css';
 import './RepartidorAlertas.css';
 
@@ -537,11 +538,18 @@ export default function RepartidorAlertas({ session, rol, onGoToPedidos, onGoToH
     // 1. Sonido vibrante una sola vez
     playRepartidorPedidoAsignadoSound();
 
-    // 2. Notificación en escritorio
+    // 2. Notificación en escritorio y APK nativa Android
     showDesktopNotification('🛵 ¡Nuevo Pedido Asignado!', {
       body: `Pedido #${shortId} de ${comercio} para ${cliente}. Entrega: ${direccion}`,
       tag: `rep-asignado-${orderId}`,
       onClick: () => onGoToPedidos?.(orderId),
+    });
+
+    sendNativeNotification({
+      id: orderId,
+      title: '🛵 ¡Nuevo Pedido Asignado!',
+      body: `Pedido #${shortId} de ${comercio} para ${cliente}. Entrega: ${direccion}`,
+      data: { orderId },
     });
 
     // 3. Toast en UI

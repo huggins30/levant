@@ -8,6 +8,7 @@ import {
   isClientSoundEnabled,
   setClientSoundEnabled
 } from './clienteAlertSound';
+import { sendNativeNotification } from '../../lib/nativeNotifications';
 import '../comercio/ComercioAlertas.css';
 import './ClienteAlertas.css';
 
@@ -569,11 +570,18 @@ export default function ClienteAlertas({ session, rol, onGoToTracking }) {
     // 1. Sonido de alta fidelidad una sola vez
     playRepartidorAsignadoSound();
 
-    // 2. Notificación del sistema / escritorio
+    // 2. Notificación del sistema / escritorio y APK nativa
     showDesktopNotification('🛵 ¡Repartidor Asignado a tu Pedido!', {
       body: `Tu pedido #${shortId} ${comercioNombre ? `de ${comercioNombre} ` : ''}ha sido asignado a ${repNombre} (${vehiculo}).`,
       tag: `rep-asig-${orderId}`,
       onClick: () => onGoToTracking?.(orderId),
+    });
+
+    sendNativeNotification({
+      id: orderId,
+      title: '🛵 ¡Repartidor Asignado a tu Pedido!',
+      body: `Tu pedido #${shortId} ${comercioNombre ? `de ${comercioNombre} ` : ''}ha sido asignado a ${repNombre} (${vehiculo}).`,
+      data: { orderId },
     });
 
     // 3. Agregar Toast interactivo en pantalla (evitando duplicar el mismo orderId)

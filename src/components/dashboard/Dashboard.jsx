@@ -654,6 +654,17 @@ function DashboardCliente({ session, onSignOut, onGoToProfile, registeredRol, cu
           <p className="db-hero-sub" style={{ textTransform: 'capitalize' }}>{dateLabel}</p>
         </div>
         <div className="db-hero-right">
+          {/* Botón directo de Realizar Pedido en cabecera */}
+          <button
+            type="button"
+            className="db-hero-order-cta"
+            onClick={() => onGoToTiendas?.()}
+            title="Explorar tiendas y realizar pedido"
+          >
+            <span className="db-hero-order-cta-icon">🛍️</span>
+            <span>Realizar Pedido</span>
+          </button>
+
           {/* Píldora de Alerta en Vivo para el Cliente */}
           {activeAlertPill && (
             <div
@@ -745,6 +756,32 @@ function DashboardCliente({ session, onSignOut, onGoToProfile, registeredRol, cu
             onSwitchMode={onSwitchMode}
           />
         </div>
+      </div>
+
+      {/* ── Banner Principal Destacado: Realizar Pedido ── */}
+      <div className="db-quick-order-hero">
+        <div className="db-quick-order-hero-content">
+          <div className="db-quick-order-hero-icon-box">
+            <span className="db-quick-order-hero-pulse" />
+            <span className="db-quick-order-hero-emoji">🛍️</span>
+          </div>
+          <div className="db-quick-order-hero-text">
+            <span className="db-quick-order-hero-badge">Tiendas & Delivery Levant</span>
+            <h2 className="db-quick-order-hero-title">¿Qué deseas pedir hoy?</h2>
+            <p className="db-quick-order-hero-desc">
+              Explora todos los comercios disponibles, añade tus productos al carrito y recibe tu delivery al instante.
+            </p>
+          </div>
+        </div>
+        <button
+          type="button"
+          id="btn-realizar-pedido-home"
+          className="db-quick-order-hero-btn"
+          onClick={() => onGoToTiendas?.()}
+        >
+          <span>🛍️ Realizar Pedido</span>
+          <span className="db-quick-order-hero-btn-arrow">➔</span>
+        </button>
       </div>
 
       {/* Banner interactivo si hay un pedido activo con repartidor asignado */}
@@ -1239,7 +1276,7 @@ function DashboardCliente({ session, onSignOut, onGoToProfile, registeredRol, cu
 // ════════════════════════════════════════════════════
 // DASHBOARD COMERCIO
 // ════════════════════════════════════════════════════
-function DashboardComercio({ session, onSignOut, onGoToProfile, registeredRol, currentRol, onSwitchMode }) {
+function DashboardComercio({ session, onSignOut, onGoToProfile, registeredRol, currentRol, onSwitchMode, onGoToTiendas }) {
   const [pedidos, setPedidos]       = useState([]);
   const [productos, setProductos]   = useState([]);
   const [comercio, setComercio]     = useState(null);
@@ -1829,6 +1866,22 @@ function DashboardComercio({ session, onSignOut, onGoToProfile, registeredRol, c
           <p className="db-hero-sub" style={{ textTransform: 'capitalize' }}>{dateLabel} · {comercio.categoria}</p>
         </div>
         <div className="db-hero-right">
+          {/* Botón directo Realizar Pedido */}
+          <button
+            type="button"
+            className="db-hero-order-cta"
+            onClick={() => {
+              if (onSwitchMode && currentRol === 'comercio') {
+                onSwitchMode('cliente');
+              }
+              onGoToTiendas?.();
+            }}
+            title="Explorar tiendas y realizar pedido"
+          >
+            <span className="db-hero-order-cta-icon">🛍️</span>
+            <span>Realizar Pedido</span>
+          </button>
+
           {/* Píldora de Alerta en Vivo justo en este encabezado */}
           {activeAlertPill && (
             <div

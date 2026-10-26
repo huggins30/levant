@@ -19,16 +19,34 @@ export default function Login() {
 
     try {
       if (isLogin) {
-        const { error: err } = await supabase.auth.signInWithPassword({
-          email,
+        const { data: authData, error: err } = await supabase.auth.signInWithPassword({
+          email: email.trim(),
           password,
         });
         if (err) throw err;
+
+        // Si es comercio o repartidor, verificar si su correo ha sido activado por el administrador
+        if (authData?.user) {
+          const { data: prof } = await supabase
+            .from('profiles')
+            .select('*')
+            .eq('id', authData.user.id)
+            .maybeSingle();
+
+          if (prof && (prof.rol === 'comercio' || prof.rol === 'repartidor')) {
+            if (prof.correo_activado === false) {
+              await supabase.auth.signOut();
+              throw new Error(
+                `Tu cuenta de ${prof.rol === 'comercio' ? 'Comercio' : 'Repartidor'} está registrada pero pendiente de activación por el Administrador. Podrás ingresar en cuanto tu correo sea activado.`
+              );
+            }
+          }
+        }
       } else {
         if (!nombre.trim() || nombre.length < 3) throw new Error('Ingresa un nombre válido (mín. 3 letras)');
         
         const { error: err } = await supabase.auth.signUp({
-          email,
+          email: email.trim(),
           password,
           options: {
             data: {
@@ -38,10 +56,22 @@ export default function Login() {
           },
         });
         if (err) throw err;
-        alert('¡Registro exitoso! (Si tienes confirmación por email activada en Supabase, revisa tu correo)');
+
+        if (rol === 'cliente') {
+          alert('¡Registro exitoso! Revisa tu correo electrónico para confirmar tu cuenta y poder ingresar.');
+        } else {
+          alert(
+            `¡Registro exitoso como ${rol === 'comercio' ? 'Comercio' : 'Repartidor'}!\n\nTus datos han sido registrados en la lista del Administrador. Podrás ingresar a la plataforma una vez que el Administrador active tu correo.`
+          );
+        }
+        setIsLogin(true);
       }
     } catch (err) {
-      setError(err.message);
+      if (err.message && err.message.toLowerCase().includes('email not confirmed')) {
+        setError('El correo electrónico no ha sido activado todavía. Por favor revisa tu bandeja de entrada o espera la activación del administrador.');
+      } else {
+        setError(err.message);
+      }
     } finally {
       setLoading(false);
     }

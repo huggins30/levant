@@ -1,10 +1,15 @@
-import { useState, useEffect, useCallback } from 'react';
-import { supabase, registrarUsuarioAdmin } from '../../lib/supabase';
+import { useState, useEffect, useCallback, useMemo } from 'react';
+import {
+  supabase,
+  registrarUsuarioAdmin,
+  activarCorreoUsuarioAdmin,
+  obtenerUsuariosRegistroAdmin,
+} from '../../lib/supabase';
 import {
   Users, Store, Bike, Plus, Search, CheckCircle2, XCircle,
   ChevronDown, ChevronUp, Loader2, AlertTriangle, Eye,
   ShieldCheck, RefreshCw, UserPlus, Building2, Truck,
-  IdCard, Car,
+  IdCard, Car, MailCheck, Mail, Clock, Phone,
 } from 'lucide-react';
 import './AdminPanel.css';
 
@@ -27,6 +32,14 @@ function formatDate(iso) {
   if (!iso) return '—';
   return new Date(iso).toLocaleDateString('es-VE', {
     day: '2-digit', month: 'short', year: '2-digit',
+  });
+}
+
+function formatDateTime(iso) {
+  if (!iso) return '—';
+  return new Date(iso).toLocaleString('es-VE', {
+    day: '2-digit', month: 'short', year: 'numeric',
+    hour: '2-digit', minute: '2-digit', hour12: true,
   });
 }
 
@@ -415,12 +428,250 @@ function FormCrearRepartidor({ tiposVehiculo, onClose, onSuccess }) {
   );
 }
 
+// ── Tabla de Solicitudes y Activación de Cuentas ─────────────────────────────
+function TablaActivaciones({ usuarios, onActivarCorreo, activatingId }) {
+  const [busqueda, setBusqueda] = useState('');
+  const [filtroRol, setFiltroRol] = useState('todos'); // 'todos' | 'pendientes' | 'activados' | 'comercio' | 'repartidor'
+
+  const filtrados = useMemo(() => {
+    return usuarios.filter(u => {
+      const q = busqueda.toLowerCase().trim();
+      const matchBusqueda = !q ||
+        u.nombre_completo?.toLowerCase().includes(q) ||
+        u.email?.toLowerCase().includes(q) ||
+        u.nombre_comercial?.toLowerCase().includes(q) ||
+        u.cedula?.toLowerCase().includes(q) ||
+        u.telefono?.toLowerCase().includes(q);
+
+      if (!matchBusqueda) return false;
+
+      if (filtroRol === 'pendientes') return !u.correo_activado;
+      if (filtroRol === 'activados')  return !!u.correo_activado;
+      if (filtroRol === 'comercio')   return u.rol === 'comercio';
+      if (filtroRol === 'repartidor') return u.rol === 'repartidor';
+      return true;
+    });
+  }, [usuarios, busqueda, filtroRol]);
+
+  const pendientesCount = usuarios.filter(u => !u.correo_activado).length;
+  const activadosCount  = usuarios.filter(u => !!u.correo_activado).length;
+  const comerciosCount  = usuarios.filter(u => u.rol === 'comercio').length;
+  const repartidoresCount = usuarios.filter(u => u.rol === 'repartidor').length;
+
+  return (
+    <div className="adm-table-wrap">
+      <div className="adm-table-toolbar" style={{ flexDirection: 'column', alignItems: 'stretch', gap: '.75rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' }}>
+          <div className="adm-search-box" style={{ flex: 1, minWidth: '260px' }}>
+            <Search size={14} className="adm-search-icon" />
+            <input
+              type="text"
+              placeholder="Buscar por nombre, email, comercio, cédula o teléfono…"
+              value={busqueda}
+              onChange={e => setBusqueda(e.target.value)}
+            />
+          </div>
+          <span className="adm-table-count">
+            {filtrados.length} de {usuarios.length} cuentas registradas
+          </span>
+        </div>
+
+        {/* Chips de filtro rápido */}
+        <div className="adm-filter-chips">
+          <button
+            type="button"
+            className={`adm-filter-chip ${filtroRol === 'todos' ? 'adm-filter-chip--active' : ''}`}
+            onClick={() => setFiltroRol('todos')}
+          >
+            Todos ({usuarios.length})
+          </button>
+          <button
+            type="button"
+            className={`adm-filter-chip ${filtroRol === 'pendientes' ? 'adm-filter-chip--active' : ''}`}
+            onClick={() => setFiltroRol('pendientes')}
+            style={pendientesCount > 0 ? { borderColor: 'rgba(245, 158, 11, 0.4)', color: '#fcd34d' } : {}}
+          >
+            ⏳ Pendientes ({pendientesCount})
+          </button>
+          <button
+            type="button"
+            className={`adm-filter-chip ${filtroRol === 'activados' ? 'adm-filter-chip--active' : ''}`}
+            onClick={() => setFiltroRol('activados')}
+          >
+            ✅ Activados ({activadosCount})
+          </button>
+          <button
+            type="button"
+            className={`adm-filter-chip ${filtroRol === 'comercio' ? 'adm-filter-chip--active' : ''}`}
+            onClick={() => setFiltroRol('comercio')}
+          >
+            🏪 Comercios ({comerciosCount})
+          </button>
+          <button
+            type="button"
+            className={`adm-filter-chip ${filtroRol === 'repartidor' ? 'adm-filter-chip--active' : ''}`}
+            onClick={() => setFiltroRol('repartidor')}
+          >
+            🛵 Repartidores ({repartidoresCount})
+          </button>
+        </div>
+      </div>
+
+      <div className="adm-table-scroll">
+        <table className="adm-table">
+          <thead>
+            <tr>
+              <th>Usuario / Solicitante</th>
+              <th>Rol</th>
+              <th>Correo Electrónico</th>
+              <th>Datos Registrados</th>
+              <th>Fecha de Registro</th>
+              <th>Estado del Correo</th>
+              <th>Acción de Activación</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtrados.length === 0 && (
+              <tr>
+                <td colSpan={7} className="adm-table-empty">
+                  No hay cuentas que coincidan con los filtros seleccionados
+                </td>
+              </tr>
+            )}
+            {filtrados.map(u => {
+              const isComercio = u.rol === 'comercio';
+              const isLoading = activatingId === u.id;
+              return (
+                <tr key={u.id}>
+                  {/* Solicitante */}
+                  <td>
+                    <div className="adm-table-name">
+                      <div
+                        className="adm-table-avatar"
+                        style={{
+                          background: isComercio ? 'rgba(45,212,191,.15)' : 'rgba(249,115,22,.15)',
+                          color: isComercio ? '#2dd4bf' : '#fb923c',
+                        }}
+                      >
+                        {isComercio ? <Store size={15} /> : <Bike size={15} />}
+                      </div>
+                      <div>
+                        <span className="adm-table-main">{u.nombre_completo || 'Sin nombre'}</span>
+                        {u.telefono && (
+                          <span className="adm-table-sub" style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
+                            <Phone size={10} /> {u.telefono}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </td>
+
+                  {/* Rol */}
+                  <td>
+                    {isComercio ? (
+                      <Badge color="cyan"><Store size={11} style={{ marginRight: 3 }} /> Comercio</Badge>
+                    ) : (
+                      <Badge color="purple"><Bike size={11} style={{ marginRight: 3 }} /> Repartidor</Badge>
+                    )}
+                  </td>
+
+                  {/* Correo */}
+                  <td>
+                    <a
+                      href={`mailto:${u.email}`}
+                      className="adm-table-main"
+                      style={{ color: '#93c5fd', textDecoration: 'none' }}
+                      title="Enviar email"
+                    >
+                      {u.email}
+                    </a>
+                  </td>
+
+                  {/* Datos Registrados */}
+                  <td>
+                    {isComercio ? (
+                      <div>
+                        <span className="adm-table-main">{u.nombre_comercial || 'Comercio'}</span>
+                        <span className="adm-table-sub">
+                          {CATEGORIA_LABEL[u.categoria] ?? u.categoria} {u.rif ? `· ${u.rif}` : ''}
+                        </span>
+                      </div>
+                    ) : (
+                      <div>
+                        <span className="adm-table-main">
+                          {u.cedula ? `Cédula: ${u.cedula}` : 'Cédula por asignar'}
+                        </span>
+                        <span className="adm-table-sub" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                          <Truck size={11} /> {u.tipo_vehiculo || 'Moto'}
+                        </span>
+                      </div>
+                    )}
+                  </td>
+
+                  {/* Fecha */}
+                  <td className="adm-table-date">
+                    {formatDateTime(u.created_at)}
+                  </td>
+
+                  {/* Estado Correo */}
+                  <td>
+                    {u.correo_activado ? (
+                      <Badge color="green">
+                        <CheckCircle2 size={12} /> Correo Activado
+                      </Badge>
+                    ) : (
+                      <Badge color="yellow">
+                        <Clock size={12} /> Pendiente de Activación
+                      </Badge>
+                    )}
+                  </td>
+
+                  {/* Acciones */}
+                  <td>
+                    {!u.correo_activado ? (
+                      <button
+                        type="button"
+                        className="adm-btn--activate"
+                        onClick={() => onActivarCorreo(u.id, u.email, true)}
+                        disabled={isLoading}
+                        title="Activar correo para que este usuario pueda ingresar al sistema"
+                      >
+                        {isLoading ? (
+                          <Loader2 size={14} className="adm-spin" />
+                        ) : (
+                          <MailCheck size={14} />
+                        )}
+                        <span>Activar Correo</span>
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        className="adm-toggle-btn adm-toggle-btn--off"
+                        onClick={() => onActivarCorreo(u.id, u.email, false)}
+                        disabled={isLoading}
+                        title="Desactivar acceso temporalmente"
+                      >
+                        {isLoading ? <Loader2 size={13} className="adm-spin" /> : <XCircle size={13} />}
+                        <span>Desactivar</span>
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 // ── Tabla Comercios ──────────────────────────────────────────────────────────
-function TablaComercio({ comercios, onToggle }) {
+function TablaComercio({ comercios, onToggle, onActivarCorreo, activatingId }) {
   const [busqueda, setBusqueda] = useState('');
   const filtrados = comercios.filter(c =>
-    c.nombre_comercial.toLowerCase().includes(busqueda.toLowerCase()) ||
-    c.profiles?.email?.toLowerCase().includes(busqueda.toLowerCase())
+    (c.nombre_comercial || '').toLowerCase().includes(busqueda.toLowerCase()) ||
+    (c.profiles?.email || '').toLowerCase().includes(busqueda.toLowerCase())
   );
 
   return (
@@ -446,51 +697,84 @@ function TablaComercio({ comercios, onToggle }) {
               <th>Email / RIF</th>
               <th>Categoría</th>
               <th>Registro</th>
+              <th>Correo / Acceso</th>
               <th>Estado</th>
               <th>Acciones</th>
             </tr>
           </thead>
           <tbody>
             {filtrados.length === 0 && (
-              <tr><td colSpan={6} className="adm-table-empty">Sin comercios registrados</td></tr>
+              <tr><td colSpan={7} className="adm-table-empty">Sin comercios registrados</td></tr>
             )}
-            {filtrados.map(c => (
-              <tr key={c.id}>
-                <td>
-                  <div className="adm-table-name">
-                    <div className="adm-table-avatar" style={{ background: 'rgba(45,212,191,.15)', color: '#2dd4bf' }}>
-                      <Store size={14} />
+            {filtrados.map(c => {
+              const profileId = c.profile_id || c.profiles?.id;
+              const isCorreoActivo = c.profiles?.correo_activado !== false;
+              const isUpdating = activatingId === profileId;
+
+              return (
+                <tr key={c.id}>
+                  <td>
+                    <div className="adm-table-name">
+                      <div className="adm-table-avatar" style={{ background: 'rgba(45,212,191,.15)', color: '#2dd4bf' }}>
+                        <Store size={14} />
+                      </div>
+                      <div>
+                        <span className="adm-table-main">{c.nombre_comercial}</span>
+                        <span className="adm-table-sub">{c.profiles?.nombre_completo}</span>
+                      </div>
                     </div>
-                    <div>
-                      <span className="adm-table-main">{c.nombre_comercial}</span>
-                      <span className="adm-table-sub">{c.profiles?.nombre_completo}</span>
-                    </div>
-                  </div>
-                </td>
-                <td>
-                  <span className="adm-table-main">{c.profiles?.email}</span>
-                  {c.rif && <span className="adm-table-sub">{c.rif}</span>}
-                </td>
-                <td><Badge color="cyan">{CATEGORIA_LABEL[c.categoria] ?? c.categoria}</Badge></td>
-                <td className="adm-table-date">{formatDate(c.created_at)}</td>
-                <td>
-                  {c.activo
-                    ? <Badge color="green"><CheckCircle2 size={12}/> Activo</Badge>
-                    : <Badge color="red"><XCircle size={12}/> Inactivo</Badge>
-                  }
-                </td>
-                <td>
-                  <button
-                    className={`adm-toggle-btn ${c.activo ? 'adm-toggle-btn--off' : 'adm-toggle-btn--on'}`}
-                    onClick={() => onToggle('comercio', c.id, c.activo)}
-                    title={c.activo ? 'Desactivar' : 'Activar'}
-                  >
-                    {c.activo ? <XCircle size={13}/> : <CheckCircle2 size={13}/>}
-                    {c.activo ? 'Desactivar' : 'Activar'}
-                  </button>
-                </td>
-              </tr>
-            ))}
+                  </td>
+                  <td>
+                    <span className="adm-table-main">{c.profiles?.email}</span>
+                    {c.rif && <span className="adm-table-sub">{c.rif}</span>}
+                  </td>
+                  <td><Badge color="cyan">{CATEGORIA_LABEL[c.categoria] ?? c.categoria}</Badge></td>
+                  <td className="adm-table-date">{formatDate(c.created_at)}</td>
+                  
+                  {/* Correo / Activación */}
+                  <td>
+                    {isCorreoActivo ? (
+                      <Badge color="green"><CheckCircle2 size={12}/> Activado</Badge>
+                    ) : (
+                      <div>
+                        <Badge color="yellow"><Clock size={12}/> Pendiente</Badge>
+                        {onActivarCorreo && profileId && (
+                          <div>
+                            <button
+                              type="button"
+                              className="adm-btn--activate-sm"
+                              onClick={() => onActivarCorreo(profileId, c.profiles?.email, true)}
+                              disabled={isUpdating}
+                              title="Activar correo de este comercio"
+                            >
+                              {isUpdating ? <Loader2 size={11} className="adm-spin" /> : <MailCheck size={11} />}
+                              <span>Activar Correo</span>
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </td>
+
+                  <td>
+                    {c.activo
+                      ? <Badge color="green"><CheckCircle2 size={12}/> Activo</Badge>
+                      : <Badge color="red"><XCircle size={12}/> Inactivo</Badge>
+                    }
+                  </td>
+                  <td>
+                    <button
+                      className={`adm-toggle-btn ${c.activo ? 'adm-toggle-btn--off' : 'adm-toggle-btn--on'}`}
+                      onClick={() => onToggle('comercio', c.id, c.activo)}
+                      title={c.activo ? 'Desactivar comercio' : 'Activar comercio'}
+                    >
+                      {c.activo ? <XCircle size={13}/> : <CheckCircle2 size={13}/>}
+                      {c.activo ? 'Desactivar' : 'Activar'}
+                    </button>
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
@@ -499,12 +783,12 @@ function TablaComercio({ comercios, onToggle }) {
 }
 
 // ── Tabla Repartidores ───────────────────────────────────────────────────────
-function TablaRepartidor({ repartidores, tiposVehiculo, onToggle }) {
+function TablaRepartidor({ repartidores, tiposVehiculo, onToggle, onActivarCorreo, activatingId }) {
   const [busqueda, setBusqueda] = useState('');
   const filtrados = repartidores.filter(r =>
-    r.profiles?.nombre_completo?.toLowerCase().includes(busqueda.toLowerCase()) ||
-    r.profiles?.email?.toLowerCase().includes(busqueda.toLowerCase()) ||
-    r.cedula?.toLowerCase().includes(busqueda.toLowerCase())
+    (r.profiles?.nombre_completo || '').toLowerCase().includes(busqueda.toLowerCase()) ||
+    (r.profiles?.email || '').toLowerCase().includes(busqueda.toLowerCase()) ||
+    (r.cedula || '').toLowerCase().includes(busqueda.toLowerCase())
   );
 
   const getTipoNombre = (id) => tiposVehiculo.find(t => t.id === id)?.nombre ?? '—';
@@ -532,55 +816,88 @@ function TablaRepartidor({ repartidores, tiposVehiculo, onToggle }) {
               <th>Cédula</th>
               <th>Tipo Vehículo</th>
               <th>Registro</th>
+              <th>Correo / Acceso</th>
               <th>Estado</th>
               <th>Acciones</th>
             </tr>
           </thead>
           <tbody>
             {filtrados.length === 0 && (
-              <tr><td colSpan={6} className="adm-table-empty">Sin repartidores registrados</td></tr>
+              <tr><td colSpan={7} className="adm-table-empty">Sin repartidores registrados</td></tr>
             )}
-            {filtrados.map(r => (
-              <tr key={r.id}>
-                <td>
-                  <div className="adm-table-name">
-                    <div className="adm-table-avatar" style={{ background: 'rgba(249,115,22,.15)', color: '#fb923c' }}>
-                      <Bike size={14} />
+            {filtrados.map(r => {
+              const profileId = r.profile_id || r.profiles?.id;
+              const isCorreoActivo = r.profiles?.correo_activado !== false;
+              const isUpdating = activatingId === profileId;
+
+              return (
+                <tr key={r.id}>
+                  <td>
+                    <div className="adm-table-name">
+                      <div className="adm-table-avatar" style={{ background: 'rgba(249,115,22,.15)', color: '#fb923c' }}>
+                        <Bike size={14} />
+                      </div>
+                      <div>
+                        <span className="adm-table-main">{r.profiles?.nombre_completo}</span>
+                        <span className="adm-table-sub">{r.profiles?.email}</span>
+                      </div>
                     </div>
-                    <div>
-                      <span className="adm-table-main">{r.profiles?.nombre_completo}</span>
-                      <span className="adm-table-sub">{r.profiles?.email}</span>
+                  </td>
+                  <td>
+                    <Badge color="yellow">{r.cedula || '—'}</Badge>
+                  </td>
+                  <td>
+                    <div className="adm-vehicle-cell">
+                      <Truck size={13} style={{ color: '#67e8f9' }}/>
+                      <span>{getTipoNombre(r.tipo_vehiculo_id) !== '—' ? getTipoNombre(r.tipo_vehiculo_id) : (r.vehiculo || 'Moto')}</span>
                     </div>
-                  </div>
-                </td>
-                <td>
-                  <Badge color="yellow">{r.cedula || '—'}</Badge>
-                </td>
-                <td>
-                  <div className="adm-vehicle-cell">
-                    <Truck size={13} style={{ color: '#67e8f9' }}/>
-                    <span>{getTipoNombre(r.tipo_vehiculo_id)}</span>
-                  </div>
-                </td>
-                <td className="adm-table-date">{formatDate(r.created_at)}</td>
-                <td>
-                  {r.disponible
-                    ? <Badge color="green">🟢 Disponible</Badge>
-                    : <Badge color="red">🔴 Ocupado</Badge>
-                  }
-                </td>
-                <td>
-                  <button
-                    className="adm-toggle-btn adm-toggle-btn--off"
-                    onClick={() => onToggle('repartidor', r.id, r.disponible)}
-                    title="Cambiar disponibilidad"
-                  >
-                    <RefreshCw size={13}/>
-                    Disponibilidad
-                  </button>
-                </td>
-              </tr>
-            ))}
+                  </td>
+                  <td className="adm-table-date">{formatDate(r.created_at)}</td>
+
+                  {/* Correo / Activación */}
+                  <td>
+                    {isCorreoActivo ? (
+                      <Badge color="green"><CheckCircle2 size={12}/> Activado</Badge>
+                    ) : (
+                      <div>
+                        <Badge color="yellow"><Clock size={12}/> Pendiente</Badge>
+                        {onActivarCorreo && profileId && (
+                          <div>
+                            <button
+                              type="button"
+                              className="adm-btn--activate-sm"
+                              onClick={() => onActivarCorreo(profileId, r.profiles?.email, true)}
+                              disabled={isUpdating}
+                              title="Activar correo de este repartidor"
+                            >
+                              {isUpdating ? <Loader2 size={11} className="adm-spin" /> : <MailCheck size={11} />}
+                              <span>Activar Correo</span>
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </td>
+
+                  <td>
+                    {r.disponible
+                      ? <Badge color="green">🟢 Disponible</Badge>
+                      : <Badge color="red">🔴 Ocupado</Badge>
+                    }
+                  </td>
+                  <td>
+                    <button
+                      className="adm-toggle-btn adm-toggle-btn--off"
+                      onClick={() => onToggle('repartidor', r.id, r.disponible)}
+                      title="Cambiar disponibilidad"
+                    >
+                      <RefreshCw size={13}/>
+                      Disponibilidad
+                    </button>
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
@@ -599,6 +916,9 @@ export default function AdminPanel({ session, currentTab, onTabChange }) {
   const [comercios, setComercio]          = useState([]);
   const [repartidores, setRepartidores]   = useState([]);
   const [tiposVehiculo, setTiposVehiculo] = useState([]);
+  const [usuariosRegistro, setUsuariosRegistro] = useState([]);
+  const [activatingId, setActivatingId]   = useState(null);
+  const [toastMsg, setToastMsg]           = useState(null);
   const [loading, setLoading]             = useState(true);
   const [showModal, setShowModal]         = useState(null); // 'comercio' | 'repartidor'
 
@@ -618,25 +938,41 @@ export default function AdminPanel({ session, currentTab, onTabChange }) {
 
   const cargarDatos = useCallback(async () => {
     setLoading(true);
-    const [{ data: coms }, { data: reps }, { data: tipos }] = await Promise.all([
-      supabase
-        .from('comercios_datos')
-        .select('*, profiles(email, nombre_completo, rol)')
-        .order('created_at', { ascending: false }),
-      supabase
-        .from('repartidores_datos')
-        .select('*, profiles(email, nombre_completo, rol)')
-        .order('created_at', { ascending: false }),
-      supabase
-        .from('tipos_vehiculo')
-        .select('*')
-        .eq('activo', true)
-        .order('capacidad_peso_kg', { ascending: true }),
-    ]);
-    setComercio(coms ?? []);
-    setRepartidores(reps ?? []);
-    setTiposVehiculo(tipos ?? []);
-    setLoading(false);
+    try {
+      const [
+        { data: coms },
+        { data: reps },
+        { data: tipos },
+        registroUsers
+      ] = await Promise.all([
+        supabase
+          .from('comercios_datos')
+          .select('*, profiles(*)')
+          .order('created_at', { ascending: false }),
+        supabase
+          .from('repartidores_datos')
+          .select('*, profiles(*)')
+          .order('created_at', { ascending: false }),
+        supabase
+          .from('tipos_vehiculo')
+          .select('*')
+          .eq('activo', true)
+          .order('capacidad_peso_kg', { ascending: true }),
+        obtenerUsuariosRegistroAdmin().catch(e => {
+          console.warn('Error al obtener lista de registros:', e.message);
+          return [];
+        }),
+      ]);
+
+      setComercio(coms ?? []);
+      setRepartidores(reps ?? []);
+      setTiposVehiculo(tipos ?? []);
+      setUsuariosRegistro(registroUsers ?? []);
+    } catch (err) {
+      console.error('Error al cargar datos en AdminPanel:', err);
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   useEffect(() => { cargarDatos(); }, [cargarDatos]);
@@ -650,18 +986,42 @@ export default function AdminPanel({ session, currentTab, onTabChange }) {
     cargarDatos();
   };
 
+  // Manejador centralizado para activar o desactivar correo de un repartidor o comercio
+  const handleActivarCorreo = async (userId, userEmail, activar = true) => {
+    setActivatingId(userId);
+    try {
+      await activarCorreoUsuarioAdmin({ userId, activar });
+      setToastMsg(
+        activar
+          ? `✅ Correo activado para ${userEmail}. Ya puede ingresar al sistema.`
+          : `⚠️ Acceso desactivado para ${userEmail}.`
+      );
+      setTimeout(() => setToastMsg(null), 4000);
+      await cargarDatos();
+    } catch (err) {
+      console.error('Error al activar correo:', err);
+      alert('Error al actualizar estado del correo: ' + err.message);
+    } finally {
+      setActivatingId(null);
+    }
+  };
+
+  const pendientesCount = usuariosRegistro.filter(u => !u.correo_activado).length;
+
   const stats = {
-    totalComercios:    comercios.length,
-    activeComercios:   comercios.filter(c => c.activo).length,
-    totalRepartidores: repartidores.length,
-    disponibles:       repartidores.filter(r => r.disponible).length,
+    totalComercios:       comercios.length,
+    activeComercios:      comercios.filter(c => c.activo).length,
+    totalRepartidores:    repartidores.length,
+    disponibles:          repartidores.filter(r => r.disponible).length,
+    pendientesActivacion: pendientesCount,
   };
 
   const tabs = [
-    { id: 'overview',     label: 'Resumen',      icon: ShieldCheck },
-    { id: 'comercios',    label: 'Comercios',     icon: Store },
-    { id: 'repartidores', label: 'Repartidores',  icon: Bike },
-    { id: 'vehiculos',    label: 'Tipos Vehículo', icon: Car },
+    { id: 'overview',     label: 'Resumen',            icon: ShieldCheck },
+    { id: 'activaciones', label: 'Activar Cuentas',    icon: MailCheck, badge: stats.pendientesActivacion },
+    { id: 'comercios',    label: 'Comercios',          icon: Store },
+    { id: 'repartidores', label: 'Repartidores',       icon: Bike },
+    { id: 'vehiculos',    label: 'Tipos Vehículo',     icon: Car },
   ];
 
   return (
@@ -674,7 +1034,7 @@ export default function AdminPanel({ session, currentTab, onTabChange }) {
           </div>
           <div>
             <h1 className="adm-hero-title">Panel Administrador</h1>
-            <p className="adm-hero-sub">Gestión de comercios, repartidores y plataforma Levant</p>
+            <p className="adm-hero-sub">Gestión de usuarios, comercios, repartidores y plataforma Levant</p>
           </div>
         </div>
         <button className="adm-refresh-btn" onClick={cargarDatos} title="Actualizar datos">
@@ -686,8 +1046,14 @@ export default function AdminPanel({ session, currentTab, onTabChange }) {
       {/* Stats */}
       <div className="adm-stats-grid">
         <StatCard icon={Store}  label="Total Comercios"    value={stats.totalComercios}    color="#2dd4bf" iconBg="rgba(45,212,191,.12)" />
-        <StatCard icon={CheckCircle2} label="Comercios Activos" value={stats.activeComercios} color="#10b981" iconBg="rgba(16,185,129,.12)" />
         <StatCard icon={Bike}   label="Total Repartidores" value={stats.totalRepartidores} color="#fb923c" iconBg="rgba(249,115,22,.12)" />
+        <StatCard
+          icon={MailCheck}
+          label="Pendientes Correo"
+          value={stats.pendientesActivacion}
+          color={stats.pendientesActivacion > 0 ? '#f59e0b' : '#10b981'}
+          iconBg={stats.pendientesActivacion > 0 ? 'rgba(245,158,11,.15)' : 'rgba(16,185,129,.15)'}
+        />
         <StatCard icon={Users}  label="Disponibles"        value={stats.disponibles}        color="#818cf8" iconBg="rgba(129,140,248,.12)" />
       </div>
 
@@ -702,7 +1068,8 @@ export default function AdminPanel({ session, currentTab, onTabChange }) {
               onClick={() => handleSelectTab(t.id)}
             >
               <IconComp size={15} />
-              {t.label}
+              <span>{t.label}</span>
+              {t.badge > 0 && <span className="adm-tab-badge">{t.badge}</span>}
             </button>
           );
         })}
@@ -719,6 +1086,29 @@ export default function AdminPanel({ session, currentTab, onTabChange }) {
           {/* ── RESUMEN ── */}
           {activeTab === 'overview' && (
             <div className="adm-overview">
+              {/* Alerta de solicitudes pendientes si hay repartidores o comercios sin activar */}
+              {stats.pendientesActivacion > 0 && (
+                <div className="adm-alert-banner">
+                  <div className="adm-alert-banner-left">
+                    <div className="adm-alert-banner-icon">
+                      <MailCheck size={22} />
+                    </div>
+                    <div>
+                      <p className="adm-alert-banner-title">
+                        {stats.pendientesActivacion} cuenta{stats.pendientesActivacion > 1 ? 's' : ''} pendiente{stats.pendientesActivacion > 1 ? 's' : ''} de activación de correo
+                      </p>
+                      <p className="adm-alert-banner-sub">
+                        Hay comercios o repartidores que se han registrado y están esperando que actives su correo para poder ingresar.
+                      </p>
+                    </div>
+                  </div>
+                  <button className="adm-alert-banner-btn" onClick={() => handleSelectTab('activaciones')}>
+                    <MailCheck size={16} />
+                    <span>Revisar y Activar ({stats.pendientesActivacion})</span>
+                  </button>
+                </div>
+              )}
+
               <div className="adm-overview-cards">
                 {/* Card Comercios */}
                 <div className="adm-ov-card" onClick={() => handleSelectTab('comercios')}>
@@ -771,6 +1161,16 @@ export default function AdminPanel({ session, currentTab, onTabChange }) {
               <div className="adm-quick-actions">
                 <h3 className="adm-section-title">Acciones Rápidas</h3>
                 <div className="adm-quick-grid">
+                  <button className="adm-quick-btn" onClick={() => handleSelectTab('activaciones')}>
+                    <div className="adm-quick-icon" style={{ background: 'rgba(245,158,11,.15)' }}>
+                      <MailCheck size={22} color="#f59e0b" />
+                    </div>
+                    <span className="adm-quick-label">Activar Correos</span>
+                    <span className="adm-quick-sub">
+                      {pendientesCount > 0 ? `${pendientesCount} pendientes de ingresar` : 'Todas las cuentas activas'}
+                    </span>
+                    <Plus size={16} className="adm-quick-plus" />
+                  </button>
                   <button className="adm-quick-btn" onClick={() => setShowModal('comercio')}>
                     <div className="adm-quick-icon" style={{ background: 'rgba(45,212,191,.15)' }}>
                       <Building2 size={22} color="#2dd4bf" />
@@ -792,6 +1192,25 @@ export default function AdminPanel({ session, currentTab, onTabChange }) {
             </div>
           )}
 
+          {/* ── ACTIVACIÓN DE CUENTAS (REPARTIDORES Y COMERCIOS REGISTRADOS) ── */}
+          {activeTab === 'activaciones' && (
+            <div>
+              <div className="adm-section-header">
+                <h3 className="adm-section-title">
+                  <MailCheck size={18} /> Solicitudes y Activación de Cuentas
+                </h3>
+                <span className="adm-table-count" style={{ fontSize: '.85rem', color: '#94a3b8' }}>
+                  Activa el correo de comercios y repartidores registrados para que puedan ingresar a la plataforma
+                </span>
+              </div>
+              <TablaActivaciones
+                usuarios={usuariosRegistro}
+                onActivarCorreo={handleActivarCorreo}
+                activatingId={activatingId}
+              />
+            </div>
+          )}
+
           {/* ── COMERCIOS ── */}
           {activeTab === 'comercios' && (
             <div>
@@ -803,7 +1222,12 @@ export default function AdminPanel({ session, currentTab, onTabChange }) {
                   <Plus size={15} /> Nuevo Comercio
                 </button>
               </div>
-              <TablaComercio comercios={comercios} onToggle={handleToggle} />
+              <TablaComercio
+                comercios={comercios}
+                onToggle={handleToggle}
+                onActivarCorreo={handleActivarCorreo}
+                activatingId={activatingId}
+              />
             </div>
           )}
 
@@ -822,6 +1246,8 @@ export default function AdminPanel({ session, currentTab, onTabChange }) {
                 repartidores={repartidores}
                 tiposVehiculo={tiposVehiculo}
                 onToggle={handleToggle}
+                onActivarCorreo={handleActivarCorreo}
+                activatingId={activatingId}
               />
             </div>
           )}
@@ -914,6 +1340,14 @@ export default function AdminPanel({ session, currentTab, onTabChange }) {
             onSuccess={cargarDatos}
           />
         </Modal>
+      )}
+
+      {/* Notificación Toast */}
+      {toastMsg && (
+        <div className="adm-toast">
+          <CheckCircle2 size={18} color="#34d399" />
+          <span>{toastMsg}</span>
+        </div>
       )}
     </div>
   );

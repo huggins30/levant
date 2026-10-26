@@ -6,6 +6,7 @@ import {
   markRepartidorOrderAsRead,
   markAllRepartidorOrdersAsRead,
 } from './RepartidorAlertas';
+import PedidosRealtimeBadge from '../common/PedidosRealtimeBadge';
 import './RepartidorPanel.css';
 
 const VEHICULOS = ['moto', 'carro'];
@@ -538,14 +539,31 @@ export default function RepartidorPanel({ session, initialTab = 'pedidos' }) {
       {/* ── Tabs ── */}
       <div className="rp-tabs" role="tablist">
         {[
-          ['pedidos', `📦 Pedidos Asignados ${pedidosActivosCount > 0 ? `(${pedidosActivosCount})` : ''}`],
+          ['pedidos', '📦 Pedidos Asignados'],
           ['historial', '📋 Historial'],
           ['perfil', '👤 Mi perfil']
-        ].map(([id, label]) => (
-          <button key={id} id={`rptab-${id}`} role="tab" aria-selected={activeTab === id}
-            className={`rp-tab ${activeTab === id ? 'rp-tab--active' : ''}`}
-            onClick={() => setActiveTab(id)}>{label}</button>
-        ))}
+        ].map(([id, label]) => {
+          const isPedidos = id === 'pedidos';
+          return (
+            <button
+              key={id}
+              id={`rptab-${id}`}
+              role="tab"
+              aria-selected={activeTab === id}
+              className={`rp-tab relative ${activeTab === id ? 'rp-tab--active' : ''}`}
+              onClick={() => setActiveTab(id)}
+            >
+              <span>{label}</span>
+              {isPedidos && (
+                <PedidosRealtimeBadge
+                  active={pedidosActivosCount > 0}
+                  count={pedidosActivosCount}
+                  className="-top-1 -right-1"
+                />
+              )}
+            </button>
+          );
+        })}
       </div>
 
       {/* ═══ TAB: PEDIDOS ASIGNADOS ═══ */}

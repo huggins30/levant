@@ -14,6 +14,8 @@ import Dashboard        from './components/dashboard/Dashboard';
 import RastreoPedidoNeumorphic from './components/cliente/RastreoPedidoNeumorphic';
 import ClienteAlertas    from './components/cliente/ClienteAlertas';
 import RepartidorAlertas from './components/repartidor/RepartidorAlertas';
+import PedidosRealtimeBadge from './components/common/PedidosRealtimeBadge';
+import { usePedidosRealtime } from './hooks/usePedidosRealtime';
 
 import {
   LayoutDashboard,
@@ -30,6 +32,7 @@ import {
   X,
   ChevronDown,
   ClipboardList,
+  MailCheck,
 } from 'lucide-react';
 
 import './App.css';
@@ -154,6 +157,15 @@ const ROL_TABS = {
       glow: 'rgba(99, 102, 241, 0.4)',
     },
     {
+      id: 'activaciones',
+      label: 'Activar Cuentas',
+      icon: MailCheck,
+      color: '#f59e0b',
+      bg: 'rgba(245, 158, 11, 0.12)',
+      border: 'rgba(245, 158, 11, 0.3)',
+      glow: 'rgba(245, 158, 11, 0.4)',
+    },
+    {
       id: 'comercios',
       label: 'Comercios',
       icon: Store,
@@ -193,14 +205,40 @@ export default function App() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [loadingAuth, setLoadingAuth] = useState(true);
 
+  // ── Alerta en tiempo real para nuevos pedidos (Supabase Realtime) ──
+  const {
+    hasNewOrder,
+    newOrdersCount,
+    resetNotification,
+  } = usePedidosRealtime({
+    enabled: !!session?.user,
+    table: 'pedidos_entregas',
+  });
+
+  // Helper para identificar qué pestaña representa pedidos según el rol del usuario
+  const isOrderTabForRole = (tabId, currentRol) => {
+    if (currentRol === 'repartidor') return tabId === 'pedidos';
+    if (currentRol === 'comercio')   return tabId === 'panel';
+    if (currentRol === 'cliente')    return tabId === 'historial';
+    return false;
+  };
+
+  const handleSelectTab = (tabId) => {
+    setTab(tabId);
+    const currentRol = perfil?.rol === 'comercio' ? (activeRolView || 'comercio') : (perfil?.rol ?? 'cliente');
+    if (isOrderTabForRole(tabId, currentRol)) {
+      resetNotification();
+    }
+  };
+
   const handleGoToPago = (id) => {
     setPagoPedidoId(id || null);
-    setTab('pago');
+    handleSelectTab('pago');
   };
 
   const handleGoToTracking = (id) => {
     if (id) setTrackingOrderId(id);
-    setTab('tracking');
+    handleSelectTab('tracking');
   };
 
   // ── Auth listener ───────────────────────────────────────────────
@@ -224,10 +262,18 @@ export default function App() {
     if (!session?.user) return;
     supabase
       .from('profiles')
-      .select('rol, nombre_completo')
+      .select('*')
       .eq('id', session.user.id)
       .single()
-      .then(({ data }) => {
+      .then(({ data, error }) => {
+        if (error) {
+          console.error('Error cargando perfil:', error.message);
+        }
+        if (data && (data.rol === 'comercio' || data.rol === 'repartidor') && data.correo_activado === false) {
+          supabase.auth.signOut();
+          alert('Tu cuenta está registrada pero aún no ha sido activada por el Administrador.');
+          return;
+        }
         setPerfil(data);
         const userRol = data?.rol ?? 'cliente';
         const savedView = localStorage.getItem(`levant_rol_view_${session.user.id}`);
@@ -283,12 +329,12 @@ export default function App() {
         session={session}
         rol={rol}
         onGoToPedidos={(orderId) => {
-          setTab('pedidos');
+          handleSelectTab('pedidos');
           if (orderId && typeof window !== 'undefined') {
             window.dispatchEvent(new CustomEvent('levant_focus_pedido', { detail: { orderId } }));
           }
         }}
-        onGoToHistorial={() => setTab('panel')}
+        onGoToHistorial={() => handleSelectTab('panel')}
       />
 
       {/* Mobile Topbar adaptada de acuerdo a cada usuario */}
@@ -302,6 +348,7 @@ export default function App() {
         >
           <div className="app-mobile-menu-hamburger">
             <Menu size={18} strokeWidth={2.2} />
+            <PedidosRealtimeBadge active={hasNewOrder} count={newOrdersCount} />
           </div>
           <div className="app-mobile-logo-circle">
             <img src="/logo.png" alt="Levant" className="app-mobile-logo-img" />
@@ -336,7 +383,7 @@ export default function App() {
             <button
               type="button"
               className="app-mobile-role-badge app-mobile-role-badge--repartidor"
-              onClick={() => setTab('panel')}
+              onClick={() => handleSelectTab('panel')}
               title="Panel de repartidor"
             >
               <Bike size={13} strokeWidth={2.2} />
@@ -346,7 +393,7 @@ export default function App() {
             <button
               type="button"
               className="app-mobile-role-badge app-mobile-role-badge--admin"
-              onClick={() => setTab('panel')}
+              onClick={() => handleSelectTab('panel')}
               title="Panel Admin"
             >
               <ShieldCheck size={13} strokeWidth={2.2} />
@@ -356,7 +403,7 @@ export default function App() {
             <button
               type="button"
               className="app-mobile-role-badge app-mobile-role-badge--cliente"
-              onClick={() => setTab('perfil')}
+              onClick={() => handleSelectTab('perfil')}
               title="Mi perfil de cliente"
             >
               <User size={13} strokeWidth={2.2} />
@@ -446,6 +493,7 @@ export default function App() {
               {tabs.map((t) => {
                 const IconComp = t.icon;
                 const isActive = tab === t.id;
+                const isOrdersTab = isOrderTabForRole(t.id, rol);
                 return (
                   <button
                     key={t.id}
@@ -460,12 +508,16 @@ export default function App() {
                       '--tab-glow': t.glow,
                     }}
                     onClick={() => {
-                      setTab(t.id);
+                      handleSelectTab(t.id);
                       setMobileMenuOpen(false);
                     }}
                   >
                     <span className="app-tab-badge">
                       {IconComp && <IconComp size={18} strokeWidth={2.2} className="app-tab-icon" />}
+                      <PedidosRealtimeBadge
+                        active={hasNewOrder && isOrdersTab}
+                        count={newOrdersCount}
+                      />
                     </span>
                     <span className="app-mobile-drawer-item-label">{t.label}</span>
                     {isActive && <span className="app-mobile-drawer-item-dot" />}
@@ -506,6 +558,7 @@ export default function App() {
             {tabs.map(t => {
               const IconComp = t.icon;
               const isActive = tab === t.id;
+              const isOrdersTab = isOrderTabForRole(t.id, rol);
               return (
                 <button
                   key={t.id}
@@ -519,10 +572,14 @@ export default function App() {
                     '--tab-border': t.border,
                     '--tab-glow': t.glow,
                   }}
-                  onClick={() => setTab(t.id)}
+                  onClick={() => handleSelectTab(t.id)}
                 >
                   <span className="app-tab-badge">
                     {IconComp && <IconComp size={18} strokeWidth={2.2} className="app-tab-icon" />}
+                    <PedidosRealtimeBadge
+                      active={hasNewOrder && isOrdersTab}
+                      count={newOrdersCount}
+                    />
                   </span>
                   <span className="app-tab-label">{t.label}</span>
                 </button>
@@ -594,12 +651,12 @@ export default function App() {
             registeredRol={registeredRol}
             onSwitchMode={handleSwitchMode}
             onSignOut={() => supabase.auth.signOut()}
-            onGoToProfile={() => setTab(rol === 'cliente' ? 'perfil' : 'panel')}
+            onGoToProfile={() => handleSelectTab(rol === 'cliente' ? 'perfil' : 'panel')}
             onGoToTracking={handleGoToTracking}
-            onGoToPedidos={() => setTab('pedidos')}
-            onGoToHistorial={() => setTab(rol === 'cliente' ? 'historial' : 'panel')}
+            onGoToPedidos={() => handleSelectTab('pedidos')}
+            onGoToHistorial={() => handleSelectTab(rol === 'cliente' ? 'historial' : 'panel')}
             onGoToPago={handleGoToPago}
-            onGoToTiendas={() => setTab('tiendas')}
+            onGoToTiendas={() => handleSelectTab('tiendas')}
           />
         )}
 

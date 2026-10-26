@@ -14,6 +14,7 @@ import {
 } from './ComercioAlertas';
 import { playNewOrderSound, playOrderDeliveredSound, triggerDesktopNotification } from './comercioAlertSound';
 import { notifyRepartidorAsignado } from '../repartidor/RepartidorAlertas';
+import PedidosRealtimeBadge from '../common/PedidosRealtimeBadge';
 import './ComercioPanel.css';
 import '../dashboard/Dashboard.css';
 
@@ -1457,17 +1458,16 @@ export default function ComercioPanel({ session }) {
                 id={`cptab-${id}`}
                 role="tab"
                 aria-selected={activeTab === id}
-                className={`cp-tab ${activeTab === id ? 'cp-tab--active' : ''}`}
+                className={`cp-tab relative ${activeTab === id ? 'cp-tab--active' : ''}`}
                 onClick={() => setActiveTab(id)}
               >
                 <span>{label}</span>
-                {isPedidos && (pedidosPendientesCount > 0 || tieneAlertasNuevas) && (
-                  <span
-                    className="cp-tab-counter-badge"
-                    title={`${pedidosPendientesCount} pedidos pendientes o nuevos`}
-                  >
-                    {pedidosPendientesCount > 0 ? pedidosPendientesCount : '●'}
-                  </span>
+                {isPedidos && (
+                  <PedidosRealtimeBadge
+                    active={pedidosPendientesCount > 0 || tieneAlertasNuevas}
+                    count={pedidosPendientesCount}
+                    className="-top-1 -right-1"
+                  />
                 )}
               </button>
             );

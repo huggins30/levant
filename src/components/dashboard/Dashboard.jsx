@@ -423,6 +423,10 @@ function DashboardCliente({ session, onSignOut, onGoToProfile, registeredRol, cu
   const [clientNotifications, setClientNotifications] = useState([]);
   const [showClientNotifCenter, setShowClientNotifCenter] = useState(false);
   const [activeAlertPill, setActiveAlertPill] = useState(null);
+  // Estado React para IDs leídos — evita que re-renders por pedidos borre el estado "leído"
+  const [readIdsState, setReadIdsState] = useState(() => getClientReadOrderIds());
+  // Ref para saber si el usuario cerró manualmente la píldora de alerta activa
+  const dismissedPillRef = useRef(new Set());
   const [topClienteScope, setTopClienteScope] = useState('todo'); // 'todo' | 'fecha'
   const [showAllTopCliente, setShowAllTopCliente] = useState(false);
 
@@ -479,6 +483,7 @@ function DashboardCliente({ session, onSignOut, onGoToProfile, registeredRol, cu
   }, []);
 
   // Sincronizar pedidos con las notificaciones del cliente para la campana de alertas
+  // Depende de [pedidos, readIdsState] — readIdsState es React state, NO localStorage directo
   useEffect(() => {
     if (!pedidos || pedidos.length === 0) {
       setClientNotifications([]);
@@ -486,7 +491,8 @@ function DashboardCliente({ session, onSignOut, onGoToProfile, registeredRol, cu
       return;
     }
 
-    const readIds = getClientReadOrderIds();
+    // Usamos readIdsState (React state) en vez de leer localStorage en cada render
+    const readIds = readIdsState;
     const notifs = [];
 
     pedidos.forEach((p) => {
@@ -547,34 +553,65 @@ function DashboardCliente({ session, onSignOut, onGoToProfile, registeredRol, cu
 
     setClientNotifications(notifs);
 
-    // Hero live pill para el cliente si hay alguna no leída de repartidor o en camino:
-    const unreadRep = notifs.filter((n) => n.unread && (n.tipo === 'repartidor' || n.tipo === 'en_camino'));
+    // Hero live pill — solo se muestra si no fue descartada manualmente por el usuario
+    const unreadRep = notifs.filter(
+      (n) => n.unread && (n.tipo === 'repartidor' || n.tipo === 'en_camino')
+    );
     if (unreadRep.length > 0) {
       const target = unreadRep[0];
-      setActiveAlertPill({
-        orderId: target.orderId,
-        tipo: target.tipo,
-        title: target.tipo === 'repartidor'
-          ? `¡Repartidor Asignado! #${target.orderId.slice(0, 8)}`
-          : `¡Pedido en Camino! #${target.orderId.slice(0, 8)}`,
-        total: target.total,
-      });
+      // No mostrar la píldora si el usuario ya la descartó para este pedido/tipo
+      const pillKey = `${target.orderId}-${target.tipo}`;
+      if (!dismissedPillRef.current.has(pillKey)) {
+        setActiveAlertPill({
+          orderId: target.orderId,
+          tipo: target.tipo,
+          title: target.tipo === 'repartidor'
+            ? `¡Repartidor Asignado! #${target.orderId.slice(0, 8)}`
+            : `¡Pedido en Camino! #${target.orderId.slice(0, 8)}`,
+          total: target.total,
+        });
+      }
     } else {
       setActiveAlertPill(null);
     }
-  }, [pedidos]);
+  }, [pedidos, readIdsState]);
+
+  // Escuchar cambios de IDs leídos desde otras pestañas o desde markClientOrderAsRead
+  useEffect(() => {
+    const syncReadIds = () => {
+      setReadIdsState(getClientReadOrderIds());
+    };
+    window.addEventListener('levant_client_read_orders_updated', syncReadIds);
+    return () => window.removeEventListener('levant_client_read_orders_updated', syncReadIds);
+  }, []);
 
   const handleMarkItemAsRead = (orderId, tipo) => {
+    // 1. Guardar en localStorage y actualizar React state para que el useEffect no revierta
     markClientOrderAsRead(orderId, tipo);
+    setReadIdsState(getClientReadOrderIds());
+    // 2. Actualizar notificaciones locales
     setClientNotifications((prev) =>
       prev.map((n) => (n.orderId === orderId && n.tipo === tipo ? { ...n, unread: false } : n))
     );
-    setActiveAlertPill((prev) => (prev?.orderId === orderId ? null : prev));
+    // 3. Cerrar la píldora activa y registrar como descartada
+    setActiveAlertPill((prev) => {
+      if (prev?.orderId === orderId) {
+        dismissedPillRef.current.add(`${orderId}-${tipo}`);
+        return null;
+      }
+      return prev;
+    });
   };
 
   const handleMarkAllAsRead = () => {
     markAllClientOrdersAsRead(clientNotifications);
+    // Actualizar React state con todos los IDs leídos
+    setReadIdsState(getClientReadOrderIds());
     setClientNotifications((prev) => prev.map((n) => ({ ...n, unread: false })));
+    // Registrar todas como descartadas para la píldora
+    clientNotifications.forEach((n) => {
+      dismissedPillRef.current.add(`${n.orderId}-${n.tipo}`);
+    });
     setActiveAlertPill(null);
   };
 

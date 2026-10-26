@@ -99,6 +99,43 @@ export function markAllClientOrdersAsRead(notifications = []) {
 }
 
 /**
+ * Notifica al cliente de inmediato cuando un repartidor es asignado a su pedido.
+ * Utiliza BroadcastChannel (cross-tab) y CustomEvent para respuesta instantánea (0ms).
+ */
+export function notifyClienteRepartidorAsignado({ orderId, repartidor, orderData = null }) {
+  if (!orderId) return;
+
+  const payload = {
+    orderId,
+    repartidorId: repartidor?.id,
+    repartidor,
+    orderData,
+    tipo: 'repartidor',
+    timestamp: new Date().toISOString()
+  };
+
+  // 1. Cross-tab instantáneo vía BroadcastChannel
+  if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+    try {
+      const bc = new BroadcastChannel('levant_cliente_channel');
+      bc.postMessage({ type: 'repartidor_asignado', ...payload });
+      bc.close();
+    } catch {
+      // ignore
+    }
+  }
+
+  // 2. CustomEvent en la ventana actual
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(
+      new CustomEvent('levant_cliente_repartidor_asignado', {
+        detail: payload
+      })
+    );
+  }
+}
+
+/**
  * Formatea una marca de tiempo a tiempo relativo legible en español
  */
 function formatRelativeTime(dateInput) {
@@ -614,6 +651,28 @@ export default function ClienteAlertas({ session, rol, onGoToTracking }) {
 
     initCheck();
 
+    // ── Escuchador de eventos inmediatos locales y cross-tab (0ms) ───
+    let bc = null;
+    if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+      try {
+        bc = new BroadcastChannel('levant_cliente_channel');
+        bc.onmessage = (evt) => {
+          if (!isMounted || !evt.data) return;
+          if (evt.data.type === 'repartidor_asignado') {
+            triggerAlert(evt.data.orderId, evt.data.repartidorId, evt.data.orderData);
+          }
+        };
+      } catch {
+        // ignore
+      }
+    }
+
+    const handleLocalClienteEvent = (e) => {
+      if (!isMounted || !e.detail) return;
+      triggerAlert(e.detail.orderId, e.detail.repartidorId, e.detail.orderData);
+    };
+    window.addEventListener('levant_cliente_repartidor_asignado', handleLocalClienteEvent);
+
     // ── Canal en Tiempo Real con Supabase Realtime ────────────────────
     const channel = supabase
       .channel(`cliente-repartidor-asignado-${userId}`)
@@ -687,6 +746,8 @@ export default function ClienteAlertas({ session, rol, onGoToTracking }) {
       isMounted = false;
       clearInterval(interval);
       supabase.removeChannel(channel);
+      if (bc) bc.close();
+      window.removeEventListener('levant_cliente_repartidor_asignado', handleLocalClienteEvent);
     };
   }, [session?.user?.id, rol]);
 

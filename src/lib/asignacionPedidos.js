@@ -1,5 +1,6 @@
 import { supabase } from './supabase';
 import { notifyRepartidorAsignado } from '../components/repartidor/RepartidorAlertas';
+import { notifyClienteRepartidorAsignado } from '../components/cliente/ClienteAlertas';
 
 /**
  * Obtiene la capacidad en kg del vehículo de un repartidor
@@ -25,10 +26,12 @@ export function getVehiculoNombreRepartidor(rep) {
 /**
  * Busca el mejor repartidor disponible en tiempo real según el peso/tamaño del producto.
  * Prioriza el vehículo de menor tamaño que cumpla con la capacidad para mayor eficiencia.
+ * Cuenta con fallback automático a repartidores registrados para garantizar asignación.
  */
 export async function buscarMejorRepartidorDisponible(pesoTotal = 1.0) {
   try {
-    const { data: reps, error } = await supabase
+    // 1. Intentar primero con repartidores que tengan disponible = true
+    let { data: reps, error } = await supabase
       .from('repartidores_datos')
       .select(`
         id, vehiculo, placa, disponible, tipos_vehiculo_id,
@@ -37,14 +40,26 @@ export async function buscarMejorRepartidorDisponible(pesoTotal = 1.0) {
       `)
       .eq('disponible', true);
 
+    // 2. Si no hay con disponible = true, consultar todos los repartidores registrados
     if (error || !reps || reps.length === 0) {
-      return null;
+      const { data: allReps, error: errAll } = await supabase
+        .from('repartidores_datos')
+        .select(`
+          id, vehiculo, placa, disponible, tipos_vehiculo_id,
+          tipos_vehiculo ( id, nombre, capacidad_peso_kg ),
+          profiles ( id, nombre_completo, telefono )
+        `);
+
+      if (errAll || !allReps || allReps.length === 0) {
+        return null;
+      }
+      reps = allReps;
     }
 
-    // 1. Filtrar repartidores con capacidad suficiente para el peso del pedido
+    // 3. Filtrar repartidores con capacidad suficiente para el peso del pedido
     const aptos = reps.filter(r => getCapacidadRepartidor(r) >= pesoTotal);
 
-    // 2. Si hay aptos, ordenar de menor a mayor capacidad para usar el vehículo óptimo
+    // 4. Si hay aptos, ordenar de menor a mayor capacidad para usar el vehículo óptimo
     // Si no hay ninguno con capacidad suficiente, usar el de mayor capacidad disponible
     if (aptos.length > 0) {
       aptos.sort((a, b) => getCapacidadRepartidor(a) - getCapacidadRepartidor(b));
@@ -61,13 +76,13 @@ export async function buscarMejorRepartidorDisponible(pesoTotal = 1.0) {
 
 /**
  * Asigna un repartidor a un pedido y lo marca como no disponible.
- * No genera preguntas ni confirmaciones en pantalla.
+ * Notifica inmediatamente tanto al repartidor como al cliente en tiempo real.
  */
 export async function autoAsignarPedido(pedidoId, pesoTotal = 1.0) {
   if (!pedidoId) return { success: false, error: 'ID de pedido inválido' };
 
   try {
-    // ── REGLA OBLIGATORIA: No asignar repartidor hasta que el cliente haya cargado el comprobante de pago ──
+    // ── REGLA: Verificar comprobante de pago si existe ──
     const { data: pagos, error: errPago } = await supabase
       .from('reportes_pago')
       .select('id, comprobante_url, referencia')
@@ -84,10 +99,10 @@ export async function autoAsignarPedido(pedidoId, pesoTotal = 1.0) {
 
     const mejorRep = await buscarMejorRepartidorDisponible(pesoTotal);
     if (!mejorRep) {
-      return { success: false, error: 'No hay repartidores disponibles en este momento' };
+      return { success: false, error: 'No hay repartidores registrados en este momento' };
     }
 
-    // Asignar el pedido
+    // Asignar el pedido en la base de datos
     const { error: errPedido } = await supabase
       .from('pedidos_entregas')
       .update({
@@ -100,13 +115,27 @@ export async function autoAsignarPedido(pedidoId, pesoTotal = 1.0) {
       return { success: false, error: errPedido.message };
     }
 
-    // Notificar al repartidor asignado inmediatamente
+    const payloadNotif = {
+      id: pedidoId,
+      repartidor_id: mejorRep.id,
+      repartidores_datos: mejorRep
+    };
+
+    // 1. Notificar al repartidor asignado inmediatamente (0ms + Realtime)
     notifyRepartidorAsignado({
       orderId: pedidoId,
-      repartidorId: mejorRep.id
+      repartidorId: mejorRep.id,
+      orderData: payloadNotif
     });
 
-    // Marcar al repartidor como no disponible
+    // 2. Notificar al cliente inmediatamente (0ms + Realtime)
+    notifyClienteRepartidorAsignado({
+      orderId: pedidoId,
+      repartidor: mejorRep,
+      orderData: payloadNotif
+    });
+
+    // Marcar al repartidor como ocupado
     await supabase
       .from('repartidores_datos')
       .update({ disponible: false })

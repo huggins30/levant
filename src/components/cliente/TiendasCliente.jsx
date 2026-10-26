@@ -248,10 +248,22 @@ export default function TiendasCliente({ session, onGoToPago }) {
       const { data: pedido, error: pedErr } = await supabase
         .from('pedidos_entregas')
         .insert(payload)
-        .select('id')
+        .select('id, estado, total_usd, direccion_entrega, comercio_id, cliente_id, created_at')
         .single();
 
       if (pedErr) throw pedErr;
+
+      // Emitir alerta inmediata de nuevo pedido a nivel local y cross-tab (0ms)
+      if (typeof window !== 'undefined') {
+        if ('BroadcastChannel' in window) {
+          try {
+            const bc = new BroadcastChannel('levant_orders_channel');
+            bc.postMessage({ type: 'nuevo_pedido', order: pedido });
+            bc.close();
+          } catch {}
+        }
+        window.dispatchEvent(new CustomEvent('levant_nuevo_pedido_global', { detail: { order: pedido } }));
+      }
 
       // 3. Insertar items del pedido
       const items = cartItems.map(p => ({

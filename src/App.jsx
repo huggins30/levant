@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { supabase } from './lib/supabase';
 
 // ── Módulos por rol ──────────────────────────────────────────────
@@ -204,6 +204,22 @@ export default function App() {
   const [trackingOrderId, setTrackingOrderId] = useState(null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [loadingAuth, setLoadingAuth] = useState(true);
+  const [globalOrderToast, setGlobalOrderToast] = useState(null);
+
+  const handleIncomingNewOrder = useCallback((orderData) => {
+    const shortId = orderData?.id ? orderData.id.slice(0, 8) : '--------';
+    const total = orderData?.total_usd ? `$${Number(orderData.total_usd).toFixed(2)} USD` : '';
+    setGlobalOrderToast({
+      id: orderData.id,
+      shortId,
+      total,
+      direccion: orderData.direccion_entrega || '',
+      timestamp: new Date().toISOString()
+    });
+    setTimeout(() => {
+      setGlobalOrderToast((prev) => (prev?.id === orderData.id ? null : prev));
+    }, 12000);
+  }, []);
 
   // ── Alerta en tiempo real para nuevos pedidos (Supabase Realtime) ──
   const {
@@ -213,6 +229,8 @@ export default function App() {
   } = usePedidosRealtime({
     enabled: !!session?.user,
     table: 'pedidos_entregas',
+    playSound: true,
+    onNewOrder: handleIncomingNewOrder,
   });
 
   // Helper para identificar qué pestaña representa pedidos según el rol del usuario
@@ -220,6 +238,7 @@ export default function App() {
     if (currentRol === 'repartidor') return tabId === 'pedidos';
     if (currentRol === 'comercio')   return tabId === 'panel';
     if (currentRol === 'cliente')    return tabId === 'historial';
+    if (currentRol === 'admin')      return tabId === 'panel';
     return false;
   };
 
@@ -239,6 +258,19 @@ export default function App() {
   const handleGoToTracking = (id) => {
     if (id) setTrackingOrderId(id);
     handleSelectTab('tracking');
+  };
+
+  const handleViewIncomingOrder = (orderId) => {
+    const currentRol = perfil?.rol === 'comercio' ? (activeRolView || 'comercio') : (perfil?.rol ?? 'cliente');
+    setGlobalOrderToast(null);
+    resetNotification();
+    if (currentRol === 'repartidor') {
+      handleSelectTab('pedidos');
+    } else if (currentRol === 'comercio' || currentRol === 'admin') {
+      handleSelectTab('panel');
+    } else {
+      handleGoToTracking(orderId);
+    }
   };
 
   // ── Auth listener ───────────────────────────────────────────────
@@ -336,6 +368,54 @@ export default function App() {
         }}
         onGoToHistorial={() => handleSelectTab('panel')}
       />
+
+      {/* Alerta flotante global de nuevo pedido entrante (todos los roles) */}
+      {globalOrderToast && (
+        <div className="ca-toasts-container" style={{ zIndex: 100000 }}>
+          <div className="ca-toast" role="alert" style={{ borderLeft: '4px solid #ef4444' }}>
+            <div className="ca-toast-top-glow" style={{ background: 'linear-gradient(90deg, #ef4444, #f59e0b)' }} />
+            <div className="ca-toast-main">
+              <div className="ca-toast-icon-wrap" style={{ background: 'rgba(239, 68, 68, 0.15)', color: '#ef4444' }}>
+                <span className="ca-toast-pulse" style={{ borderColor: '#ef4444' }} />
+                <span>🛍️</span>
+              </div>
+              <div className="ca-toast-content">
+                <div className="ca-toast-meta">
+                  <span className="ca-toast-badge" style={{ background: 'rgba(239, 68, 68, 0.2)', color: '#f87171' }}>
+                    ¡Nuevo Pedido!
+                  </span>
+                  <button
+                    type="button"
+                    className="ca-toast-close"
+                    onClick={() => setGlobalOrderToast(null)}
+                    title="Cerrar alerta"
+                  >
+                    ✕
+                  </button>
+                </div>
+                <h4 className="ca-toast-title">
+                  Pedido #{globalOrderToast.shortId} {globalOrderToast.total && `· ${globalOrderToast.total}`}
+                </h4>
+                {globalOrderToast.direccion && (
+                  <p className="ca-toast-body-text">
+                    📍 {globalOrderToast.direccion}
+                  </p>
+                )}
+                <div className="ca-toast-actions">
+                  <button
+                    type="button"
+                    className="ca-toast-btn-action"
+                    style={{ background: 'linear-gradient(135deg, #ef4444, #dc2626)' }}
+                    onClick={() => handleViewIncomingOrder(globalOrderToast.id)}
+                  >
+                    Ver Pedidos →
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Mobile Topbar adaptada de acuerdo a cada usuario */}
       <header className="app-mobile-topbar">

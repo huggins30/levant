@@ -1,88 +1,90 @@
 /* ==========================================================================
-   ESTILO VISUAL: DARK NEUMORPHISM (SOFT UI DARK)
-   Levant — Panel de Rastreo en Tiempo Real y Chat
+   RastreoPedidoNeumorphic.css — Rastreo de Pedido (Cliente)
+   Sistema de diseño: Shopify Polaris / Wise — Tema claro
    ========================================================================== */
 
-/* Variables de Color y Sombras Neumórficas */
+/* Variables */
 :root {
-  --neu-bg-base: #141418;
-  --neu-surface: #1e1e24;
-  --neu-surface-hover: #22222a;
-  --neu-surface-active: #19191e;
-  
-  /* Elevación Externa Neumórfica (Luz sutil arriba-izq, Sombra profunda abajo-der) */
-  --neu-shadow-flat: 8px 8px 18px #0b0b0e, -8px -8px 18px #272732;
-  --neu-shadow-sm: 4px 4px 10px #0c0c0f, -4px -4px 10px #24242e;
-  --neu-shadow-hover: 10px 10px 22px #0a0a0d, -10px -10px 22px #2a2a36;
-  
-  /* Depresión Interna Neumórfica (Inset / Pressed) */
-  --neu-shadow-inset: inset 4px 4px 8px #0c0c0f, inset -4px -4px 8px #262630;
-  --neu-shadow-inset-deep: inset 6px 6px 12px #09090c, inset -6px -6px 12px #282834;
-
-  /* Acentos de Alto Contraste */
-  --neu-accent-emerald: #10b981;
-  --neu-accent-emerald-glow: 0 0 20px rgba(16, 185, 129, 0.4);
-  --neu-accent-amber: #f59e0b;
-  --neu-accent-amber-glow: 0 0 20px rgba(245, 158, 11, 0.4);
+  --neu-bg-base:    #F6F6F7;
+  --neu-surface:    #FFFFFF;
+  --neu-border:     #E1E3E5;
+  --neu-divider:    #EBEBEB;
+  --neu-text:       #1A1A1A;
+  --neu-muted:      #616161;
+  --neu-shadow-sm:  0 1px 2px rgba(0,0,0,0.03);
+  --neu-shadow-md:  0 4px 16px rgba(0,0,0,0.08);
+  --neu-green:      #108043;
+  --neu-green-bg:   #E3F1DF;
+  --neu-green-bdr:  #C3E3B9;
+  --neu-amber:      #9E6C00;
+  --neu-amber-bg:   #FFF5EA;
+  --neu-amber-bdr:  #FFE0B2;
 }
 
+/* ── Contenedor principal ──────────────────────────────────────── */
 .neu-panel-container {
-  background-color: var(--neu-bg-base);
+  background-color: #F6F6F7;
   min-height: 100%;
-  color: #e4e4e7;
+  color: #1A1A1A;
+  font-family: 'Inter', sans-serif;
 }
 
-/* Tarjetas y Contenedores Neumórficos */
+/* ── Tarjeta principal de rastreo ─────────────────────────────── */
 .neu-card {
-  background-color: var(--neu-surface);
-  border: 1px solid rgba(255, 255, 255, 0.05);
-  box-shadow: var(--neu-shadow-flat);
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  background-color: #FFFFFF;
+  border: 1px solid #E1E3E5;
+  border-radius: 12px;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.03);
+  transition: box-shadow 0.3s ease;
 }
 
 .neu-card:hover {
-  box-shadow: var(--neu-shadow-hover);
+  box-shadow: 0 4px 16px rgba(0,0,0,0.08);
 }
 
+/* Variante inset (caja de dirección / mapa) */
 .neu-card-inset {
-  background-color: #17171d;
-  border: 1px solid rgba(255, 255, 255, 0.03);
-  box-shadow: var(--neu-shadow-inset);
+  background-color: #F6F6F7;
+  border: 1px solid #E1E3E5;
+  border-radius: 8px;
+  color: #1A1A1A;
 }
 
-/* Badges e Iconos Neumórficos */
+/* ── Badges e Iconos ──────────────────────────────────────────── */
 .neu-badge {
-  background-color: var(--neu-surface);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  box-shadow: var(--neu-shadow-sm);
+  background-color: #F1F2F4;
+  border: 1px solid #E1E3E5;
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  border-radius: 8px;
 }
 
 .neu-badge-inset {
-  background-color: #16161b;
-  box-shadow: var(--neu-shadow-inset);
+  background-color: #F6F6F7;
+  border: 1px solid #E1E3E5;
+  border-radius: 8px;
 }
 
-/* Icon Squircle Cálido / Ámbar exactamente como en el diseño de referencia */
+/* Icono Ámbar (squircle) */
 .neu-icon-badge-amber {
   width: 52px;
   height: 52px;
-  border-radius: 16px;
-  background: #38281a;
-  border: 1px solid rgba(245, 158, 11, 0.28);
-  box-shadow: 4px 4px 12px #0a080f, inset 1px 1px 2px rgba(251, 191, 36, 0.15);
+  border-radius: 14px;
+  background: #FFF5EA;
+  border: 1px solid #FFE0B2;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+  color: #9E6C00;
 }
 
+/* Tag Ámbar */
 .neu-tag-amber {
-  background: #38281a;
-  color: #fbbf24;
-  border: 1px solid rgba(245, 158, 11, 0.28);
+  background: #FFF5EA;
+  color: #9E6C00;
+  border: 1px solid #FFE0B2;
   border-radius: 9999px;
   padding: 0.25rem 0.8rem;
   font-size: 0.75rem;
@@ -90,112 +92,183 @@
   letter-spacing: 0.03em;
 }
 
-/* Botones Neumórficos */
+/* ── Botones ──────────────────────────────────────────────────── */
 .neu-button {
-  background-color: var(--neu-surface);
-  border: 1px solid rgba(255, 255, 255, 0.07);
-  box-shadow: var(--neu-shadow-flat);
+  background-color: #FFFFFF;
+  border: 1px solid #C9CCCF;
+  border-radius: 8px;
+  color: #1A1A1A;
   transition: all 0.2s ease;
   user-select: none;
+  cursor: pointer;
+  font-family: 'Inter', sans-serif;
+  font-weight: 600;
 }
 
 .neu-button:hover {
-  background-color: var(--neu-surface-hover);
-  box-shadow: var(--neu-shadow-hover);
+  border-color: #1A1A1A;
+  background-color: #F1F2F4;
 }
 
 .neu-button:active {
-  background-color: var(--neu-surface-active);
-  box-shadow: var(--neu-shadow-inset);
+  background-color: #E1E3E5;
   transform: scale(0.98);
 }
 
-/* Botón Acento Esmeralda */
+/* Botón Acción Principal (confirmar entrega / valorar) */
 .neu-button-emerald {
-  background: linear-gradient(145deg, #10b981, #059669);
-  color: #ffffff;
-  border: 1px solid rgba(52, 211, 153, 0.3);
-  box-shadow: 4px 4px 14px #0b0b0e, 0 0 16px rgba(16, 185, 129, 0.35);
+  background: #108043;
+  color: #FFFFFF;
+  border: 1px solid #0D6B37;
+  border-radius: 6px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s ease;
 }
 
 .neu-button-emerald:hover {
-  box-shadow: 6px 6px 18px #09090c, 0 0 24px rgba(16, 185, 129, 0.55);
+  background: #0D6B37;
 }
 
 .neu-button-emerald:active {
-  box-shadow: inset 3px 3px 6px #047857, inset -3px -3px 6px #34d399;
+  background: #0A5230;
 }
 
-/* Botón Acento Oro / Ámbar */
+/* Botón Ámbar / Oro */
 .neu-button-gold {
-  background: linear-gradient(145deg, #f59e0b, #d97706);
-  color: #18181b;
+  background: #1A1A1A;
+  color: #FFFFFF;
   font-weight: 700;
-  border: 1px solid rgba(251, 191, 36, 0.3);
-  box-shadow: 4px 4px 14px #0b0b0e, 0 0 16px rgba(245, 158, 11, 0.35);
+  border: 1px solid #1A1A1A;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.2s ease;
 }
 
 .neu-button-gold:hover {
-  box-shadow: 6px 6px 18px #09090c, 0 0 24px rgba(245, 158, 11, 0.55);
+  background: #303030;
 }
 
-/* Inputs Neumórficos */
+/* ── Timeline / Pasos del pedido ─────────────────────────────── */
+
+/* Línea vertical del timeline */
+.neu-timeline-line {
+  background: #E1E3E5;
+  width: 2px;
+}
+
+/* Paso completado */
+.neu-step-completed {
+  color: #108043;
+}
+.neu-step-completed .neu-step-icon {
+  background: #E3F1DF;
+  border: 1px solid #C3E3B9;
+  color: #108043;
+}
+
+/* Paso activo */
+.neu-step-active {
+  color: #108043;
+  font-weight: 600;
+}
+.neu-step-active .neu-step-icon {
+  background: #E3F1DF;
+  border: 2px solid #108043;
+  color: #108043;
+}
+
+/* Paso pendiente */
+.neu-step-pending {
+  color: #616161;
+}
+.neu-step-pending .neu-step-icon {
+  background: #F1F2F4;
+  border: 1px solid #E1E3E5;
+  color: #616161;
+}
+
+/* Texto de estado */
+.neu-status-text {
+  color: #1A1A1A;
+  font-weight: 600;
+}
+
+/* ── Inputs ───────────────────────────────────────────────────── */
 .neu-input {
-  background-color: #16161b;
-  border: 1px solid rgba(255, 255, 255, 0.05);
-  box-shadow: var(--neu-shadow-inset);
-  color: #f4f4f5;
+  background-color: #FFFFFF;
+  border: 1px solid #C9CCCF;
+  border-radius: 8px;
+  color: #1A1A1A;
+  font-family: 'Inter', sans-serif;
   transition: all 0.25s ease;
+  outline: none;
+}
+
+.neu-input::placeholder {
+  color: #9B9B9B;
 }
 
 .neu-input:focus {
   outline: none;
-  border-color: rgba(16, 185, 129, 0.5);
-  box-shadow: var(--neu-shadow-inset-deep), 0 0 12px rgba(16, 185, 129, 0.2);
+  border-color: #1A1A1A;
+  box-shadow: 0 0 0 3px rgba(0,0,0,0.08);
 }
 
-/* Burbujas de Chat Neumórficas */
+/* ── Chat / Burbujas ─────────────────────────────────────────── */
 .neu-bubble-client {
-  background: linear-gradient(135deg, #1e2824, #19221e);
-  border: 1px solid rgba(16, 185, 129, 0.2);
-  box-shadow: 4px 4px 10px #09090c, inset 1px 1px 2px rgba(52, 211, 153, 0.15);
-  color: #ecfdf5;
+  background: #E3F1DF;
+  border: 1px solid #C3E3B9;
+  border-radius: 12px 12px 4px 12px;
+  color: #1A1A1A;
+  padding: 0.75rem 1rem;
+  font-size: 0.9rem;
 }
 
 .neu-bubble-other {
-  background: #1b1b22;
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  box-shadow: 4px 4px 10px #0b0b0e, inset 1px 1px 2px rgba(255, 255, 255, 0.03);
-  color: #e4e4e7;
+  background: #F1F2F4;
+  border: 1px solid #E1E3E5;
+  border-radius: 12px 12px 12px 4px;
+  color: #1A1A1A;
+  padding: 0.75rem 1rem;
+  font-size: 0.9rem;
 }
 
-/* Indicador de pulsación */
+/* ── Estrellas de valoración ─────────────────────────────────── */
+.neu-star--on {
+  color: #9E6C00;
+}
+
+.neu-star,
+.neu-star--off {
+  color: #E1E3E5;
+}
+
+/* ── Indicador de pulsación (disponibilidad) ─────────────────── */
 @keyframes neu-pulse-emerald {
-  0%, 100% {
-    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.6);
-  }
-  50% {
-    box-shadow: 0 0 0 10px rgba(16, 185, 129, 0);
-  }
+  0%, 100% { box-shadow: 0 0 0 0 rgba(16, 128, 67, 0.4); }
+  50%       { box-shadow: 0 0 0 8px rgba(16, 128, 67, 0); }
 }
 
 .neu-pulse-active {
   animation: neu-pulse-emerald 2s infinite;
+  background: #108043;
+  border-radius: 50%;
 }
 
-/* Scrollbar estilizada para chat */
+/* ── Scrollbar ───────────────────────────────────────────────── */
 .neu-chat-scroll::-webkit-scrollbar {
   width: 5px;
 }
 .neu-chat-scroll::-webkit-scrollbar-track {
-  background: #141418;
+  background: #F6F6F7;
 }
 .neu-chat-scroll::-webkit-scrollbar-thumb {
-  background: #2a2a35;
+  background: #C9CCCF;
   border-radius: 9999px;
 }
 .neu-chat-scroll::-webkit-scrollbar-thumb:hover {
-  background: #10b981;
+  background: #616161;
 }
 
 /* ── Responsive ── */
@@ -203,7 +276,7 @@
   .neu-panel-container { font-size: 0.9rem; }
 }
 @media (max-width: 640px) {
-  .neu-card { border-radius: 12px; }
+  .neu-card { border-radius: 10px; }
   .neu-bubble-client,
   .neu-bubble-other { font-size: .87rem; }
 }

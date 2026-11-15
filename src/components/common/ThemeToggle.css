@@ -1,0 +1,61 @@
+/* ── Botón de alternancia Modo Oscuro / Modo Claro ── */
+.theme-toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border: 1px solid var(--surface-border, #E1E3E5);
+  background: var(--surface, #FFFFFF);
+  color: var(--text-primary, #1A1A1A);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+  user-select: none;
+}
+
+.theme-toggle-btn--sm {
+  padding: 0.35rem 0.55rem;
+  font-size: 0.75rem;
+  min-height: 28px;
+}
+
+.theme-toggle-btn--md {
+  padding: 0.45rem 0.75rem;
+  font-size: 0.8125rem;
+  min-height: 34px;
+}
+
+.theme-toggle-btn:hover {
+  background: var(--surface-hover, #F1F2F4);
+  border-color: var(--text-muted, #8C9196);
+  transform: translateY(-1px);
+}
+
+.theme-toggle-btn:active {
+  transform: translateY(0);
+}
+
+.theme-toggle-icon-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.3s ease;
+}
+
+.theme-toggle-btn:hover .theme-toggle-icon-wrap {
+  transform: rotate(18deg);
+}
+
+.theme-toggle-icon--sun {
+  color: #F59E0B;
+}
+
+.theme-toggle-icon--moon {
+  color: #6366F1;
+}
+
+.theme-toggle-label {
+  font-weight: 600;
+  white-space: nowrap;
+}

@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { supabase } from '../../lib/supabase';
 import { getSocket } from '../../lib/socket';
-import { buscarMejorRepartidorDisponible } from '../../lib/asignacionPedidos';
+import { autoAsignarPedido, buscarMejorRepartidorDisponible } from '../../lib/asignacionPedidos';
+import { getComprobanteSignedUrl } from '../../lib/storageHelper';
 import { 
   ComercioAlertToasts, 
   ComercioAlertCenter,
@@ -442,7 +443,7 @@ export default function ComercioPanel({ session }) {
             cantidad, precio_usd, subtotal_usd,
             productos ( id, nombre, imagen_url, precio_usd )
           ),
-          reportes_pago(metodo, estado, referencia)
+          reportes_pago(metodo, estado, referencia, comprobante_url)
         `)
         .eq('comercio_id', perfil.id)
         .order('created_at', { ascending: false })
@@ -513,7 +514,7 @@ export default function ComercioPanel({ session }) {
           id, cantidad, precio_usd, subtotal_usd,
           productos ( id, nombre, imagen_url, peso_kg )
         ),
-        reportes_pago ( metodo, estado, referencia, monto_bs, monto_usd )
+        reportes_pago ( metodo, estado, referencia, monto_bs, monto_usd, comprobante_url )
       `)
       .eq('comercio_id', perfil.id)
       .order('created_at', { ascending: false })
@@ -535,7 +536,7 @@ export default function ComercioPanel({ session }) {
             id, cantidad, precio_usd, subtotal_usd,
             productos ( id, nombre, imagen_url )
           ),
-          reportes_pago ( metodo, estado, referencia, monto_bs, monto_usd )
+          reportes_pago ( metodo, estado, referencia, monto_bs, monto_usd, comprobante_url )
         `)
         .eq('comercio_id', perfil.id)
         .order('created_at', { ascending: false })
@@ -591,7 +592,7 @@ export default function ComercioPanel({ session }) {
             id, cantidad, precio_usd, subtotal_usd,
             productos ( id, nombre, imagen_url )
           ),
-          reportes_pago ( metodo, estado, referencia, monto_bs, monto_usd )
+          reportes_pago ( metodo, estado, referencia, monto_bs, monto_usd, comprobante_url )
         `)
         .eq('id', orderId)
         .maybeSingle();
@@ -917,40 +918,17 @@ export default function ComercioPanel({ session }) {
       }
     }
 
-    // Buscar el mejor repartidor disponible según capacidad de vehículo y peso del producto
-    const seleccionado = await buscarMejorRepartidorDisponible(pesoTotal);
-    if (!seleccionado) {
-      console.warn('[AutoAsign] No hay repartidores disponibles para el pedido', pedido.id, `(peso: ${pesoTotal}kg)`);
+    // Asignación atómica mediante RPC en base de datos (SELECT ... FOR UPDATE SKIP LOCKED)
+    const res = await autoAsignarPedido(pedido.id, pesoTotal);
+    if (!res.success) {
+      console.warn('[AutoAsign] No fue posible asignar repartidor:', res.error);
       return;
     }
 
-    console.log('[AutoAsign] Asignando automáticamente a', seleccionado.profiles?.nombre_completo, 'al pedido', pedido.id);
+    const seleccionado = res.repartidor;
+    console.log('[AutoAsign] Asignado atómicamente a', seleccionado.profiles?.nombre_completo, 'al pedido', pedido.id);
 
-    // Asignar repartidor en pedidos_entregas
-    const { error: assignErr } = await supabase
-      .from('pedidos_entregas')
-      .update({ repartidor_id: seleccionado.id, updated_at: new Date().toISOString() })
-      .eq('id', pedido.id);
-
-    if (assignErr) {
-      console.error('[AutoAsign] Error asignando repartidor:', assignErr);
-      return;
-    }
-
-    // Emitir alerta inmediata al repartidor asignado (multicanal: BroadcastChannel, CustomEvent y Realtime)
-    notifyRepartidorAsignado({
-      orderId: pedido.id,
-      repartidorId: seleccionado.id,
-      orderData: pedido
-    });
-
-    // Marcar repartidor como no disponible
-    await supabase
-      .from('repartidores_datos')
-      .update({ disponible: false })
-      .eq('id', seleccionado.id);
-
-    // Actualizar estado local
+    // Actualizar estado local de disponibilidad
     setRepartidoresActivos(prev => prev.map(r =>
       r.id === seleccionado.id ? { ...r, disponible: false } : r
     ));
@@ -1077,7 +1055,7 @@ export default function ComercioPanel({ session }) {
             confirmacion_cliente, valoracion,
             profiles!pedidos_entregas_cliente_id_fkey(nombre_completo, telefono),
             pedido_items ( id, cantidad, precio_usd, subtotal_usd, productos ( id, nombre, imagen_url ) ),
-            reportes_pago ( metodo, estado, referencia, monto_bs, monto_usd )
+            reportes_pago ( metodo, estado, referencia, monto_bs, monto_usd, comprobante_url )
           `)
           .eq('comercio_id', perfil.id)
           .order('created_at', { ascending: false })
@@ -1266,17 +1244,14 @@ export default function ComercioPanel({ session }) {
 
     setAssigningRepartidor(ped.id);
     try {
-      // Buscar directamente en base de datos para obtener el repartidor óptimo disponible
-      const seleccionado = await buscarMejorRepartidorDisponible(pesoTotal);
-
-      if (!seleccionado) {
-        console.warn(`[AutoAsign] No hay repartidores disponibles para ${pesoTotal} kg.`);
-        alert(`No hay repartidores disponibles en línea en este momento para vehículo ${reqVeh.nombre} (${pesoTotal} kg).`);
+      // Asignación atómica mediante RPC con bloqueo SKIP LOCKED
+      const res = await autoAsignarPedido(ped.id, pesoTotal);
+      if (!res.success) {
+        console.warn(`[AutoAsign] No se pudo asignar: ${res.error}`);
+        alert(`No hay repartidores disponibles en línea en este momento para vehículo ${reqVeh.nombre} (${pesoTotal} kg): ${res.error}`);
         return;
       }
-
-      // Asignar directamente sin confirmación
-      await assignRepartidor(ped.id, seleccionado.id);
+      fetchGPedidos();
     } catch (err) {
       console.error('Error en auto-asignación:', err);
     } finally {
@@ -2005,7 +1980,31 @@ export default function ComercioPanel({ session }) {
                 <span className="cp-modal-rep-label">💳 Reporte de pago:</span>
                 {pedidoDetalle.reportes_pago?.[0] ? (
                   <div className="cp-pago-info-box">
-                    <span className="cp-badge-pago cp-badge-pago--pagado">✅ Registrado</span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                      <span className="cp-badge-pago cp-badge-pago--pagado">✅ Registrado</span>
+                      {pedidoDetalle.reportes_pago[0].comprobante_url && (
+                        <button
+                          type="button"
+                          className="cp-btn-ver-comprobante"
+                          onClick={async () => {
+                            try {
+                              const signed = await getComprobanteSignedUrl(pedidoDetalle.reportes_pago[0].comprobante_url);
+                              if (signed) {
+                                window.open(signed, '_blank', 'noopener,noreferrer');
+                              } else {
+                                alert('No se pudo generar la URL firmada del comprobante.');
+                              }
+                            } catch (e) {
+                              console.error('Error abriendo comprobante:', e);
+                              alert('Error al acceder al comprobante privado.');
+                            }
+                          }}
+                          title="Ver comprobante de pago seguro mediante URL firmada"
+                        >
+                          🔍 Ver Comprobante Firmado
+                        </button>
+                      )}
+                    </div>
                     <span className="cp-pago-info-text">
                       Método: <strong>{pedidoDetalle.reportes_pago[0].metodo?.replace('_', ' ')}</strong>
                       {pedidoDetalle.reportes_pago[0].referencia ? ` · Ref: ${pedidoDetalle.reportes_pago[0].referencia}` : ''}

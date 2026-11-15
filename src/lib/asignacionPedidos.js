@@ -75,78 +75,132 @@ export async function buscarMejorRepartidorDisponible(pesoTotal = 1.0) {
 }
 
 /**
- * Asigna un repartidor a un pedido y lo marca como no disponible.
+ * Asigna un repartidor a un pedido de forma atómica y segura mediante función RPC
+ * con bloqueo transaccional (SELECT ... FOR UPDATE SKIP LOCKED), evitando condiciones de carrera.
  * Notifica inmediatamente tanto al repartidor como al cliente en tiempo real.
  */
 export async function autoAsignarPedido(pedidoId, pesoTotal = 1.0) {
   if (!pedidoId) return { success: false, error: 'ID de pedido inválido' };
 
   try {
-    // ── REGLA: Verificar comprobante de pago si existe ──
-    const { data: pagos, error: errPago } = await supabase
-      .from('reportes_pago')
-      .select('id, comprobante_url, referencia')
-      .eq('pedido_id', pedidoId);
-
-    const tieneComprobante = Boolean(pagos && pagos.length > 0 && pagos.some(p => p.comprobante_url));
-    if (errPago || !tieneComprobante) {
-      console.warn('[AsignacionPedidos] Asignación bloqueada: el pedido', pedidoId, 'aún no tiene imagen de comprobante registrada.');
-      return { 
-        success: false, 
-        error: 'El cliente debe cargar la imagen del pago y registrar el pago antes de asignar un repartidor.' 
-      };
-    }
-
-    const mejorRep = await buscarMejorRepartidorDisponible(pesoTotal);
-    if (!mejorRep) {
-      return { success: false, error: 'No hay repartidores registrados en este momento' };
-    }
-
-    // Asignar el pedido en la base de datos
-    const { error: errPedido } = await supabase
-      .from('pedidos_entregas')
-      .update({
-        repartidor_id: mejorRep.id,
-        updated_at: new Date().toISOString()
-      })
-      .eq('id', pedidoId);
-
-    if (errPedido) {
-      return { success: false, error: errPedido.message };
-    }
-
-    const payloadNotif = {
-      id: pedidoId,
-      repartidor_id: mejorRep.id,
-      repartidores_datos: mejorRep
-    };
-
-    // 1. Notificar al repartidor asignado inmediatamente (0ms + Realtime)
-    notifyRepartidorAsignado({
-      orderId: pedidoId,
-      repartidorId: mejorRep.id,
-      orderData: payloadNotif
+    // 1. Invocar RPC atómica en base de datos con bloqueo FOR UPDATE SKIP LOCKED
+    const { data: rpcRes, error: rpcErr } = await supabase.rpc('auto_asignar_repartidor_pedido', {
+      p_pedido_id: pedidoId,
+      p_peso_total: Number(pesoTotal) || 1.0,
     });
 
-    // 2. Notificar al cliente inmediatamente (0ms + Realtime)
-    notifyClienteRepartidorAsignado({
-      orderId: pedidoId,
-      repartidor: mejorRep,
-      orderData: payloadNotif
-    });
+    if (!rpcErr && rpcRes) {
+      if (!rpcRes.success) {
+        console.warn('[AsignacionPedidos] RPC rechazó asignación:', rpcRes.error);
+        return { success: false, error: rpcRes.error };
+      }
 
-    // Marcar al repartidor como ocupado
-    await supabase
-      .from('repartidores_datos')
-      .update({ disponible: false })
-      .eq('id', mejorRep.id);
+      const mejorRep = rpcRes.repartidor;
+      if (mejorRep) {
+        const payloadNotif = {
+          id: pedidoId,
+          repartidor_id: mejorRep.id,
+          repartidores_datos: mejorRep,
+        };
 
-    return {
-      success: true,
-      repartidor: mejorRep
-    };
+        // Disparar alertas multicanal en tiempo real
+        notifyRepartidorAsignado({
+          orderId: pedidoId,
+          repartidorId: mejorRep.id,
+          orderData: payloadNotif,
+        });
+
+        notifyClienteRepartidorAsignado({
+          orderId: pedidoId,
+          repartidor: mejorRep,
+          orderData: payloadNotif,
+        });
+
+        return {
+          success: true,
+          repartidor: mejorRep,
+          already_assigned: Boolean(rpcRes.already_assigned),
+        };
+      }
+    }
+
+    if (rpcErr) {
+      console.warn('[AsignacionPedidos] Fallback a asignación cliente tras error de RPC:', rpcErr.message);
+    }
+
+    // 2. Fallback resiliente en cliente si la función RPC aún no está migrada en la base de datos
+    return await autoAsignarPedidoClienteFallback(pedidoId, pesoTotal);
   } catch (err) {
-    console.error('[AsignacionPedidos] Error en autoAsignarPedido:', err);
+    console.error('[AsignacionPedidos] Error general en autoAsignarPedido:', err);
     return { success: false, error: err.message };
   }
+}
+
+/**
+ * Fallback de asignación ejecutado en cliente si la base de datos no tiene la función RPC
+ */
+async function autoAsignarPedidoClienteFallback(pedidoId, pesoTotal = 1.0) {
+  // ── REGLA: Verificar comprobante de pago si existe ──
+  const { data: pagos, error: errPago } = await supabase
+    .from('reportes_pago')
+    .select('id, comprobante_url, referencia')
+    .eq('pedido_id', pedidoId);
+
+  const tieneComprobante = Boolean(pagos && pagos.length > 0 && pagos.some(p => p.comprobante_url));
+  if (errPago || !tieneComprobante) {
+    console.warn('[AsignacionPedidos] Asignación bloqueada: el pedido', pedidoId, 'aún no tiene imagen de comprobante registrada.');
+    return { 
+      success: false, 
+      error: 'El cliente debe cargar la imagen del pago y registrar el pago antes de asignar un repartidor.' 
+    };
+  }
+
+  const mejorRep = await buscarMejorRepartidorDisponible(pesoTotal);
+  if (!mejorRep) {
+    return { success: false, error: 'No hay repartidores registrados en este momento' };
+  }
+
+  // Asignar el pedido en la base de datos
+  const { error: errPedido } = await supabase
+    .from('pedidos_entregas')
+    .update({
+      repartidor_id: mejorRep.id,
+      updated_at: new Date().toISOString()
+    })
+    .eq('id', pedidoId);
+
+  if (errPedido) {
+    return { success: false, error: errPedido.message };
+  }
+
+  const payloadNotif = {
+    id: pedidoId,
+    repartidor_id: mejorRep.id,
+    repartidores_datos: mejorRep
+  };
+
+  // 1. Notificar al repartidor asignado inmediatamente (0ms + Realtime)
+  notifyRepartidorAsignado({
+    orderId: pedidoId,
+    repartidorId: mejorRep.id,
+    orderData: payloadNotif
+  });
+
+  // 2. Notificar al cliente inmediatamente (0ms + Realtime)
+  notifyClienteRepartidorAsignado({
+    orderId: pedidoId,
+    repartidor: mejorRep,
+    orderData: payloadNotif
+  });
+
+  // Marcar al repartidor como ocupado
+  await supabase
+    .from('repartidores_datos')
+    .update({ disponible: false })
+    .eq('id', mejorRep.id);
+
+  return {
+    success: true,
+    repartidor: mejorRep
+  };
 }

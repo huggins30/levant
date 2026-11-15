@@ -1,7 +1,9 @@
 /* ==========================================================================
    ClienteAlertas.css — Notificaciones & Alertas de Repartidor Asignado
+   Sistema de diseño: Shopify Polaris / Wise — tema claro
    ========================================================================== */
 
+/* ── Contenedor de toasts flotantes ── */
 .ca-toasts-container {
   position: fixed;
   top: 1.25rem;
@@ -15,20 +17,16 @@
   width: calc(100% - 2.5rem);
 }
 
+/* ── Toast base ── */
 .ca-toast {
   pointer-events: auto;
   position: relative;
-  background: rgba(13, 17, 27, 0.96);
-  border: 1px solid rgba(56, 189, 248, 0.35);
-  border-radius: 16px;
+  background: #FFFFFF;
+  border: 1px solid #E1E3E5;
+  border-radius: 12px;
   padding: 1rem 1.15rem;
-  box-shadow: 
-    0 12px 36px rgba(0, 0, 0, 0.65),
-    0 0 24px rgba(56, 189, 248, 0.22),
-    inset 0 1px 0 rgba(255, 255, 255, 0.1);
-  backdrop-filter: blur(18px);
-  -webkit-backdrop-filter: blur(18px);
-  color: #f8fafc;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+  color: #1A1A1A;
   font-family: 'Inter', -apple-system, sans-serif;
   animation: caSlideIn 0.38s cubic-bezier(0.16, 1, 0.3, 1) forwards;
   overflow: hidden;
@@ -46,16 +44,44 @@
   }
 }
 
-.ca-toast-top-glow {
-  position: absolute;
-  top: 0;
-  left: 15%;
-  right: 15%;
-  height: 2px;
-  background: linear-gradient(90deg, transparent, #38bdf8, #818cf8, transparent);
-  box-shadow: 0 0 12px #38bdf8;
+@keyframes caFadeOut {
+  0% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-10px) scale(0.97);
+  }
 }
 
+/* ── Variantes de toast por tipo ── */
+
+/* Nuevo pedido / asignado */
+.ca-toast--nuevo,
+.ca-toast--asignado {
+  border-left: 3px solid #1351B4;
+  border-color: #C3DCF7;
+}
+
+/* Entregado / confirmación */
+.ca-toast--entregado,
+.ca-toast--confirmacion {
+  border-left: 3px solid #108043;
+  border-color: #C3E3B9;
+}
+
+/* Pendiente valoración */
+.ca-toast--valoracion {
+  border-color: #FFE0B2;
+}
+
+/* Reemplaza el antiguo glow decorativo: elemento sin estilo visible */
+.ca-toast-top-glow {
+  display: none;
+}
+
+/* ── Estructura interna del toast ── */
 .ca-toast-main {
   display: flex;
   align-items: flex-start;
@@ -66,24 +92,19 @@
   position: relative;
   width: 44px;
   height: 44px;
-  border-radius: 13px;
-  background: radial-gradient(circle at 30% 30%, rgba(56, 189, 248, 0.25), rgba(99, 102, 241, 0.15));
-  border: 1px solid rgba(56, 189, 248, 0.4);
+  border-radius: 10px;
+  background: #F1F2F4;
+  border: 1px solid #E1E3E5;
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 1.35rem;
   flex-shrink: 0;
-  box-shadow: 0 0 16px rgba(56, 189, 248, 0.3);
 }
 
+/* Mantiene el selector sin el glow neón */
 .ca-toast-pulse {
-  position: absolute;
-  inset: -3px;
-  border-radius: 15px;
-  border: 1.5px solid rgba(56, 189, 248, 0.6);
-  animation: caPulseRing 2s infinite ease-out;
-  pointer-events: none;
+  display: none;
 }
 
 @keyframes caPulseRing {
@@ -120,17 +141,18 @@
   letter-spacing: 0.05em;
   padding: 0.2rem 0.55rem;
   border-radius: 999px;
-  background: rgba(56, 189, 248, 0.18);
-  color: #38bdf8;
-  border: 1px solid rgba(56, 189, 248, 0.35);
+  background: #F1F2F4;
+  color: #616161;
+  border: 1px solid #E1E3E5;
 }
 
+/* ── Botón cerrar (dismiss) ── */
 .ca-toast-close {
-  background: transparent;
-  border: none;
-  color: #94a3b8;
+  background: #F1F2F4;
+  border: 1px solid #E1E3E5;
+  color: #616161;
   cursor: pointer;
-  padding: 0.2rem;
+  padding: 0.2rem 0.4rem;
   border-radius: 6px;
   display: flex;
   align-items: center;
@@ -140,32 +162,34 @@
 }
 
 .ca-toast-close:hover {
-  color: #f1f5f9;
-  background: rgba(255, 255, 255, 0.08);
+  background: #E1E3E5;
+  color: #1A1A1A;
 }
 
+/* ── Textos del toast ── */
 .ca-toast-title {
   font-size: 0.94rem;
   font-weight: 700;
   margin: 0 0 0.3rem 0;
-  color: #ffffff;
+  color: #1A1A1A;
   line-height: 1.25;
 }
 
 .ca-toast-desc {
   font-size: 0.81rem;
-  color: #cbd5e1;
+  color: #616161;
   margin: 0 0 0.75rem 0;
   line-height: 1.4;
 }
 
+/* ── Píldora de repartidor ── */
 .ca-toast-driver-pill {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 9px;
+  background: #F6F6F7;
+  border: 1px solid #E1E3E5;
+  border-radius: 8px;
   padding: 0.4rem 0.65rem;
   margin-bottom: 0.75rem;
   font-size: 0.78rem;
@@ -173,19 +197,21 @@
 
 .ca-toast-driver-name {
   font-weight: 600;
-  color: #38bdf8;
+  color: #1351B4;
 }
 
 .ca-toast-driver-vehicle {
-  color: #94a3b8;
+  color: #616161;
   font-size: 0.74rem;
 }
 
+/* ── Acciones del toast ── */
 .ca-toast-actions {
   display: flex;
   gap: 0.5rem;
 }
 
+/* Botón primario */
 .ca-toast-btn-primary {
   flex: 1;
   display: inline-flex;
@@ -193,29 +219,28 @@
   justify-content: center;
   gap: 0.4rem;
   padding: 0.5rem 0.85rem;
-  background: linear-gradient(135deg, #0284c7, #2563eb);
-  border: 1px solid rgba(56, 189, 248, 0.5);
-  border-radius: 9px;
-  color: #ffffff;
+  background: #1A1A1A;
+  border: 1px solid #1A1A1A;
+  border-radius: 6px;
+  color: #FFFFFF;
   font-size: 0.79rem;
   font-weight: 600;
   cursor: pointer;
-  box-shadow: 0 4px 14px rgba(2, 132, 199, 0.35);
   transition: all 0.2s ease;
 }
 
 .ca-toast-btn-primary:hover {
-  background: linear-gradient(135deg, #0369a1, #1d4ed8);
-  transform: translateY(-1px);
-  box-shadow: 0 6px 18px rgba(2, 132, 199, 0.45);
+  background: #303030;
+  border-color: #303030;
 }
 
+/* Botón secundario / dismiss */
 .ca-toast-btn-secondary {
   padding: 0.5rem 0.75rem;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 9px;
-  color: #94a3b8;
+  background: #F1F2F4;
+  border: 1px solid #E1E3E5;
+  border-radius: 6px;
+  color: #616161;
   font-size: 0.79rem;
   font-weight: 500;
   cursor: pointer;
@@ -223,22 +248,474 @@
 }
 
 .ca-toast-btn-secondary:hover {
-  background: rgba(255, 255, 255, 0.08);
-  color: #f1f5f9;
+  background: #E1E3E5;
+  color: #1A1A1A;
+}
+
+/* ── Estrellas de valoración en toast ── */
+.ca-toast-star {
+  color: #E1E3E5;
+  cursor: pointer;
+  font-size: 1.1rem;
+  transition: color 0.15s ease;
+}
+
+.ca-toast-star--on,
+.ca-toast-star.active {
+  color: #9E6C00;
+}
+
+.ca-toast-stars {
+  display: flex;
+  gap: 0.15rem;
+  margin-bottom: 0.65rem;
+}
+
+/* ── Campana de alertas ── */
+.cl-bell-btn,
+.ca-bell-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  background: #FFFFFF;
+  border: 1px solid #C9CCCF;
+  color: #616161;
+  cursor: pointer;
+  transition: all 0.18s ease;
+  font-size: 1.1rem;
+}
+
+.cl-bell-btn:hover,
+.ca-bell-btn:hover {
+  background: #F6F6F7;
+  border-color: #1A1A1A;
+  color: #1A1A1A;
+}
+
+/* Estado con alertas no leídas */
+.cl-bell-btn--active,
+.ca-bell-btn--active,
+.cl-bell-btn.has-alerts,
+.ca-bell-btn.has-alerts {
+  background: #FFF5EA;
+  border-color: #FFE0B2;
+  color: #9E6C00;
+}
+
+.cl-bell-btn--active:hover,
+.ca-bell-btn--active:hover {
+  background: #FFE0B2;
+  border-color: #9E6C00;
+}
+
+/* Badge de campana */
+.cl-bell-badge,
+.ca-bell-badge {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  background: #D72C0D;
+  border: 2px solid #FFFFFF;
+  border-radius: 999px;
+  font-size: 0.65rem;
+  font-weight: 700;
+  color: #FFFFFF;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+
+/* ── Centro de alertas (flyout) ── */
+.cl-alert-center,
+.ca-alert-center {
+  position: fixed;
+  background: #FFFFFF;
+  border: 1px solid #E1E3E5;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  border-radius: 12px;
+  z-index: 9999;
+  min-width: 340px;
+  max-width: 400px;
+  overflow: hidden;
+  animation: caSlideIn 0.28s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Header del centro de alertas */
+.cl-alert-center-header,
+.ca-alert-center-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem 1.15rem;
+  border-bottom: 1px solid #E1E3E5;
+  background: #FFFFFF;
+}
+
+.cl-alert-center-title,
+.ca-alert-center-title {
+  font-size: 0.94rem;
+  font-weight: 700;
+  color: #1A1A1A;
+  margin: 0;
+}
+
+.cl-alert-center-close,
+.ca-alert-center-close {
+  background: #F1F2F4;
+  border: 1px solid #E1E3E5;
+  color: #616161;
+  cursor: pointer;
+  padding: 0.2rem 0.4rem;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.85rem;
+  transition: all 0.18s ease;
+}
+
+.cl-alert-center-close:hover,
+.ca-alert-center-close:hover {
+  background: #E1E3E5;
+  color: #1A1A1A;
+}
+
+/* Lista de items de alerta */
+.cl-alert-list,
+.ca-alert-list {
+  overflow-y: auto;
+  max-height: 420px;
+}
+
+.cl-alert-item,
+.ca-alert-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.9rem 1.15rem;
+  background: #FFFFFF;
+  border-bottom: 1px solid #EBEBEB;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.cl-alert-item:last-child,
+.ca-alert-item:last-child {
+  border-bottom: none;
+}
+
+.cl-alert-item:hover,
+.ca-alert-item:hover {
+  background: #F6F6F7;
+}
+
+/* Dot de no leído */
+.cl-alert-unread-dot,
+.ca-alert-unread-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #D72C0D;
+  flex-shrink: 0;
+  margin-top: 0.3rem;
+}
+
+.cl-alert-item-title,
+.ca-alert-item-title {
+  font-size: 0.84rem;
+  font-weight: 600;
+  color: #1A1A1A;
+  margin: 0 0 0.15rem 0;
+  line-height: 1.3;
+}
+
+.cl-alert-item-desc,
+.ca-alert-item-desc {
+  font-size: 0.76rem;
+  color: #616161;
+  margin: 0;
+  line-height: 1.4;
+}
+
+.cl-alert-item-time,
+.ca-alert-item-time {
+  font-size: 0.7rem;
+  color: #616161;
+  flex-shrink: 0;
+  margin-top: 0.1rem;
+}
+
+/* Footer del centro de alertas */
+.cl-alert-center-footer,
+.ca-alert-center-footer {
+  padding: 0.75rem 1.15rem;
+  border-top: 1px solid #E1E3E5;
+  background: #FFFFFF;
+  display: flex;
+  justify-content: center;
+}
+
+.cl-alert-center-clear,
+.ca-alert-center-clear {
+  background: transparent;
+  border: none;
+  color: #616161;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0.3rem 0.6rem;
+  border-radius: 6px;
+  transition: all 0.15s ease;
+}
+
+.cl-alert-center-clear:hover,
+.ca-alert-center-clear:hover {
+  background: #F1F2F4;
+  color: #1A1A1A;
+}
+
+/* Estado vacío */
+.cl-alert-empty,
+.ca-alert-empty {
+  padding: 2rem 1.5rem;
+  text-align: center;
+  color: #616161;
+  font-size: 0.84rem;
+}
+
+/* ── Backdrop del flyout ── */
+.cl-alert-backdrop,
+.ca-alert-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  z-index: 9998;
+}
+
+/* ── Pill de no leídos en header ── */
+.cl-alert-unread-pill,
+.ca-alert-unread-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.15rem 0.55rem;
+  background: #FFF5EA;
+  color: #9E6C00;
+  border: 1px solid #FFE0B2;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+/* Botón marcar leídas */
+.cl-alert-mark-read,
+.ca-alert-mark-read {
+  background: transparent;
+  border: none;
+  color: #616161;
+  font-size: 0.75rem;
+  font-weight: 500;
+  cursor: pointer;
+  padding: 0.2rem 0.4rem;
+  border-radius: 4px;
+  transition: color 0.15s ease;
+}
+
+.cl-alert-mark-read:hover,
+.ca-alert-mark-read:hover {
+  color: #1A1A1A;
+}
+
+/* ── Toolbar / barra de filtros ── */
+.cl-alert-toolbar,
+.ca-alert-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.6rem 1rem;
+  background: #F6F6F7;
+  border-bottom: 1px solid #EBEBEB;
+  overflow-x: auto;
+}
+
+/* Toggle sonido */
+.cl-alert-sound-btn,
+.ca-alert-sound-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.3rem 0.65rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.cl-alert-sound-btn--on,
+.ca-alert-sound-btn--on {
+  background: #1A1A1A;
+  color: #FFFFFF;
+  border: 1px solid #1A1A1A;
+}
+
+.cl-alert-sound-btn--off,
+.ca-alert-sound-btn--off {
+  background: #F1F2F4;
+  border: 1px solid #E1E3E5;
+  color: #616161;
+}
+
+/* Filtros pills en toolbar */
+.cl-alert-filter,
+.ca-alert-filter {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.25rem 0.65rem;
+  font-size: 0.74rem;
+  font-weight: 600;
+  border-radius: 999px;
+  border: 1px solid #C9CCCF;
+  background: #FFFFFF;
+  color: #616161;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s ease;
+}
+
+.cl-alert-filter--active,
+.ca-alert-filter--active {
+  background: #1A1A1A;
+  color: #FFFFFF;
+  border-color: #1A1A1A;
+}
+
+/* ── Icono en header del centro ── */
+.cl-alert-header-icon,
+.ca-alert-header-icon {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #F1F2F4;
+  border: 1px solid #E1E3E5;
+  border-radius: 8px;
+  font-size: 1rem;
+  flex-shrink: 0;
+}
+
+/* ── CTA "Ver pedido →" en items ── */
+.cl-alert-item-cta,
+.ca-alert-item-cta {
+  color: #1351B4;
+  font-weight: 600;
+  font-size: 0.75rem;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.cl-alert-item-cta:hover,
+.ca-alert-item-cta:hover {
+  text-decoration: underline;
+}
+
+/* Total del item de alerta */
+.cl-alert-item-total,
+.ca-alert-item-total {
+  color: #108043;
+  font-weight: 700;
+  font-size: 0.84rem;
+}
+
+/* ── Footer del flyout ── */
+.cl-alert-footer,
+.ca-alert-footer {
+  padding: 0.65rem 1.15rem;
+  background: #F6F6F7;
+  border-top: 1px solid #EBEBEB;
+  display: flex;
+  justify-content: center;
+}
+
+/* Botón limpiar historial */
+.cl-alert-clear-history,
+.ca-alert-clear-history {
+  background: transparent;
+  border: none;
+  color: #1351B4;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0.3rem 0.6rem;
+  border-radius: 4px;
+  transition: background 0.15s ease;
+}
+
+.cl-alert-clear-history:hover,
+.ca-alert-clear-history:hover {
+  background: #EBF0FA;
+}
+
+/* ── Icono de toast por tipo ── */
+.ca-toast-icon-wrap--pedido {
+  background: #EAF4FD;
+  border-color: #C3DCF7;
+}
+
+.ca-toast-icon-wrap--valoracion {
+  background: #FFFBF0;
+  border-color: #FFE0B2;
+}
+
+/* ── Badge de toast por tipo ── */
+.ca-toast-badge--pedido {
+  background: #EAF4FD;
+  color: #1351B4;
+  border-color: #C3DCF7;
+}
+
+.ca-toast-badge--valoracion {
+  background: #FFFBF0;
+  color: #9E6C00;
+  border-color: #FFE0B2;
+}
+
+/* ── Caja de estrellas ── */
+.ca-toast-stars-wrap {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.5rem 0.75rem;
+  background: #FFFBF0;
+  border: 1px solid #FFE0B2;
+  color: #9E6C00;
+  border-radius: 8px;
+  margin-bottom: 0.65rem;
+  font-size: 0.8rem;
+  font-weight: 600;
 }
 
 /* ── Banner persistente para el Dashboard del Cliente ── */
 .ca-dashboard-banner {
-  background: linear-gradient(135deg, rgba(14, 165, 233, 0.15), rgba(99, 102, 241, 0.12));
-  border: 1px solid rgba(56, 189, 248, 0.32);
-  border-radius: 14px;
+  background: #FFFFFF;
+  border: 1px solid #E1E3E5;
+  border-left: 3px solid #1351B4;
+  border-radius: 10px;
   padding: 0.85rem 1.15rem;
   margin-bottom: 1.25rem;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 1rem;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
   animation: caSlideIn 0.35s ease;
 }
 
@@ -256,22 +733,22 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 10px;
-  background: rgba(56, 189, 248, 0.2);
-  border: 1px solid rgba(56, 189, 248, 0.4);
+  border-radius: 8px;
+  background: #F1F2F4;
+  border: 1px solid #E1E3E5;
   flex-shrink: 0;
 }
 
 .ca-dashboard-banner-title {
   font-size: 0.88rem;
   font-weight: 700;
-  color: #ffffff;
+  color: #1A1A1A;
   margin: 0 0 0.15rem 0;
 }
 
 .ca-dashboard-banner-sub {
   font-size: 0.77rem;
-  color: #94a3b8;
+  color: #616161;
   margin: 0;
 }
 
@@ -280,10 +757,10 @@
   align-items: center;
   gap: 0.4rem;
   padding: 0.45rem 0.95rem;
-  background: #0284c7;
-  border: 1px solid rgba(56, 189, 248, 0.5);
-  border-radius: 8px;
-  color: #ffffff;
+  background: #1A1A1A;
+  border: 1px solid #1A1A1A;
+  border-radius: 6px;
+  color: #FFFFFF;
   font-size: 0.78rem;
   font-weight: 600;
   cursor: pointer;
@@ -292,8 +769,8 @@
 }
 
 .ca-dashboard-banner-btn:hover {
-  background: #0369a1;
-  transform: translateY(-1px);
+  background: #303030;
+  border-color: #303030;
 }
 
 /* ── Badge en la tarjeta de pedido ── */
@@ -305,9 +782,9 @@
   font-weight: 600;
   padding: 0.22rem 0.6rem;
   border-radius: 6px;
-  background: rgba(56, 189, 248, 0.15);
-  color: #38bdf8;
-  border: 1px solid rgba(56, 189, 248, 0.32);
+  background: #EBF0FA;
+  color: #1351B4;
+  border: 1px solid #C3DCF7;
 }
 
 /* ── Responsive Mobile ── */
@@ -319,23 +796,37 @@
     width: auto;
     max-width: none;
   }
+
   .ca-toast {
     padding: 0.85rem 0.95rem;
-    border-radius: 14px;
+    border-radius: 10px;
   }
+
   .ca-toast-title {
     font-size: 0.88rem;
   }
+
   .ca-toast-desc {
     font-size: 0.76rem;
   }
+
   .ca-dashboard-banner {
     flex-direction: column;
     align-items: stretch;
     gap: 0.75rem;
     padding: 0.85rem;
   }
+
   .ca-dashboard-banner-btn {
     justify-content: center;
+  }
+
+  .cl-alert-center,
+  .ca-alert-center {
+    min-width: unset;
+    max-width: 100vw;
+    left: 0.75rem !important;
+    right: 0.75rem !important;
+    width: auto;
   }
 }

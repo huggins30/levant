@@ -15,6 +15,7 @@ import RastreoPedidoNeumorphic from './components/cliente/RastreoPedidoNeumorphi
 import ClienteAlertas    from './components/cliente/ClienteAlertas';
 import RepartidorAlertas from './components/repartidor/RepartidorAlertas';
 import PedidosRealtimeBadge from './components/common/PedidosRealtimeBadge';
+import ThemeToggle from './components/common/ThemeToggle';
 import { usePedidosRealtime } from './hooks/usePedidosRealtime';
 import { initNativeNotifications, clearNativeAppBadge } from './lib/nativeNotifications';
 
@@ -41,165 +42,35 @@ import './App.css';
 // ── Navegación por rol ───────────────────────────────────────────
 const ROL_TABS = {
   cliente: [
-    {
-      id: 'dashboard',
-      label: 'Dashboard',
-      icon: LayoutDashboard,
-      color: '#818cf8',
-      bg: 'rgba(99, 102, 241, 0.12)',
-      border: 'rgba(99, 102, 241, 0.3)',
-      glow: 'rgba(99, 102, 241, 0.4)',
-    },
-    {
-      id: 'tracking',
-      label: 'Rastreo & Chat',
-      icon: Zap,
-      color: '#38bdf8',
-      bg: 'rgba(56, 189, 248, 0.12)',
-      border: 'rgba(56, 189, 248, 0.3)',
-      glow: 'rgba(56, 189, 248, 0.4)',
-    },
-    {
-      id: 'tiendas',
-      label: 'Hacer Pedidos',
-      icon: Store,
-      color: '#34d399',
-      bg: 'rgba(52, 211, 153, 0.12)',
-      border: 'rgba(52, 211, 153, 0.3)',
-      glow: 'rgba(52, 211, 153, 0.4)',
-    },
-    {
-      id: 'perfil',
-      label: 'Mi Perfil',
-      icon: User,
-      color: '#c084fc',
-      bg: 'rgba(192, 132, 252, 0.12)',
-      border: 'rgba(192, 132, 252, 0.3)',
-      glow: 'rgba(192, 132, 252, 0.4)',
-    },
-    {
-      id: 'historial',
-      label: 'Mis Pedidos',
-      icon: ClipboardList,
-      color: '#fb923c',
-      bg: 'rgba(249, 115, 22, 0.12)',
-      border: 'rgba(249, 115, 22, 0.3)',
-      glow: 'rgba(249, 115, 22, 0.4)',
-    },
-    {
-      id: 'pago',
-      label: 'Reportar Pago',
-      icon: CreditCard,
-      color: '#fbbf24',
-      bg: 'rgba(251, 191, 36, 0.12)',
-      border: 'rgba(251, 191, 36, 0.3)',
-      glow: 'rgba(251, 191, 36, 0.4)',
-    },
-
+    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+    { id: 'tracking',  label: 'Rastreo & Chat', icon: Zap },
+    { id: 'tiendas',   label: 'Hacer Pedidos', icon: Store },
+    { id: 'perfil',    label: 'Mi Perfil', icon: User },
+    { id: 'historial', label: 'Mis Pedidos', icon: ClipboardList },
+    { id: 'pago',      label: 'Reportar Pago', icon: CreditCard },
   ],
   comercio: [
-    {
-      id: 'dashboard',
-      label: 'Dashboard',
-      icon: LayoutDashboard,
-      color: '#818cf8',
-      bg: 'rgba(99, 102, 241, 0.12)',
-      border: 'rgba(99, 102, 241, 0.3)',
-      glow: 'rgba(99, 102, 241, 0.4)',
-    },
-    {
-      id: 'panel',
-      label: 'Panel Comercio',
-      icon: Store,
-      color: '#2dd4bf',
-      bg: 'rgba(45, 212, 191, 0.12)',
-      border: 'rgba(45, 212, 191, 0.3)',
-      glow: 'rgba(45, 212, 191, 0.4)',
-    },
+    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+    { id: 'panel',     label: 'Panel Comercio', icon: Store },
   ],
   repartidor: [
-    {
-      id: 'dashboard',
-      label: 'Dashboard',
-      icon: LayoutDashboard,
-      color: '#818cf8',
-      bg: 'rgba(99, 102, 241, 0.12)',
-      border: 'rgba(99, 102, 241, 0.3)',
-      glow: 'rgba(99, 102, 241, 0.4)',
-    },
-    {
-      id: 'pedidos',
-      label: 'Recibir Pedidos',
-      icon: PackageSearch,
-      color: '#f97316',
-      bg: 'rgba(249, 115, 22, 0.12)',
-      border: 'rgba(249, 115, 22, 0.3)',
-      glow: 'rgba(249, 115, 22, 0.4)',
-    },
-    {
-      id: 'panel',
-      label: 'Panel Repartidor',
-      icon: Bike,
-      color: '#34d399',
-      bg: 'rgba(52, 211, 153, 0.12)',
-      border: 'rgba(52, 211, 153, 0.3)',
-      glow: 'rgba(52, 211, 153, 0.4)',
-    },
+    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+    { id: 'pedidos',   label: 'Recibir Pedidos', icon: PackageSearch },
+    { id: 'panel',     label: 'Panel Repartidor', icon: Bike },
   ],
   // ── Admin: Acceso total a gestión de la plataforma ──
   admin: [
-    {
-      id: 'panel',
-      label: 'Admin Panel',
-      icon: ShieldCheck,
-      color: '#818cf8',
-      bg: 'rgba(99, 102, 241, 0.12)',
-      border: 'rgba(99, 102, 241, 0.3)',
-      glow: 'rgba(99, 102, 241, 0.4)',
-    },
-    {
-      id: 'activaciones',
-      label: 'Activar Cuentas',
-      icon: MailCheck,
-      color: '#f59e0b',
-      bg: 'rgba(245, 158, 11, 0.12)',
-      border: 'rgba(245, 158, 11, 0.3)',
-      glow: 'rgba(245, 158, 11, 0.4)',
-    },
-    {
-      id: 'comercios',
-      label: 'Comercios',
-      icon: Store,
-      color: '#2dd4bf',
-      bg: 'rgba(45, 212, 191, 0.12)',
-      border: 'rgba(45, 212, 191, 0.3)',
-      glow: 'rgba(45, 212, 191, 0.4)',
-    },
-    {
-      id: 'repartidores',
-      label: 'Repartidores',
-      icon: Bike,
-      color: '#fb923c',
-      bg: 'rgba(249, 115, 22, 0.12)',
-      border: 'rgba(249, 115, 22, 0.3)',
-      glow: 'rgba(249, 115, 22, 0.4)',
-    },
-    {
-      id: 'vehiculos',
-      label: 'Tipos Vehículo',
-      icon: Car,
-      color: '#38bdf8',
-      bg: 'rgba(56, 189, 248, 0.12)',
-      border: 'rgba(56, 189, 248, 0.3)',
-      glow: 'rgba(56, 189, 248, 0.4)',
-    },
+    { id: 'panel',        label: 'Admin Panel', icon: ShieldCheck },
+    { id: 'activaciones', label: 'Activar Cuentas', icon: MailCheck },
+    { id: 'comercios',    label: 'Comercios', icon: Store },
+    { id: 'repartidores', label: 'Repartidores', icon: Bike },
+    { id: 'vehiculos',    label: 'Tipos Vehículo', icon: Car },
   ],
 };
 
 export default function App() {
   const [session, setSession]         = useState(null);
   const [perfil, setPerfil]           = useState(null);
-  const [activeRolView, setActiveRolView] = useState(null);
   const [tab, setTab]                 = useState('dashboard');
   const [pagoPedidoId, setPagoPedidoId] = useState(null);
   const [trackingOrderId, setTrackingOrderId] = useState(null);
@@ -245,7 +116,7 @@ export default function App() {
 
   const handleSelectTab = (tabId) => {
     setTab(tabId);
-    const currentRol = perfil?.rol === 'comercio' ? (activeRolView || 'comercio') : (perfil?.rol ?? 'cliente');
+    const currentRol = perfil?.rol ?? 'cliente';
     if (isOrderTabForRole(tabId, currentRol)) {
       resetNotification();
       clearNativeAppBadge();
@@ -263,7 +134,7 @@ export default function App() {
   };
 
   const handleViewIncomingOrder = (orderId) => {
-    const currentRol = perfil?.rol === 'comercio' ? (activeRolView || 'comercio') : (perfil?.rol ?? 'cliente');
+    const currentRol = perfil?.rol ?? 'cliente';
     setGlobalOrderToast(null);
     resetNotification();
     clearNativeAppBadge();
@@ -291,7 +162,6 @@ export default function App() {
       setSession(s);
       if (!s) {
         setPerfil(null);
-        setActiveRolView(null);
       }
     });
     return () => subscription.unsubscribe();
@@ -300,6 +170,9 @@ export default function App() {
   // ── Cargar rol del usuario ──────────────────────────────────────
   useEffect(() => {
     if (!session?.user) return;
+    try {
+      localStorage.removeItem(`levant_rol_view_${session.user.id}`);
+    } catch (_) {}
     supabase
       .from('profiles')
       .select('*')
@@ -316,24 +189,10 @@ export default function App() {
         }
         setPerfil(data);
         const userRol = data?.rol ?? 'cliente';
-        const savedView = localStorage.getItem(`levant_rol_view_${session.user.id}`);
-        const effectiveView = (userRol === 'comercio' && (savedView === 'cliente' || savedView === 'comercio'))
-          ? savedView
-          : userRol;
-        setActiveRolView(effectiveView);
         // Admin siempre arranca en 'panel'
-        setTab(userRol === 'admin' ? 'panel' : (ROL_TABS[effectiveView]?.[0]?.id ?? 'dashboard'));
+        setTab(userRol === 'admin' ? 'panel' : (ROL_TABS[userRol]?.[0]?.id ?? 'dashboard'));
       });
   }, [session]);
-
-  const handleSwitchMode = (newMode) => {
-    if (perfil?.rol !== 'comercio') return; // Solo comercios pueden alternar modo
-    setActiveRolView(newMode);
-    if (session?.user?.id) {
-      localStorage.setItem(`levant_rol_view_${session.user.id}`, newMode);
-    }
-    setTab(ROL_TABS[newMode]?.[0]?.id ?? 'dashboard');
-  };
 
   // ── Loaders ─────────────────────────────────────────────────────
   if (loadingAuth) return (
@@ -342,9 +201,7 @@ export default function App() {
 
   if (!session) return <Login />;
 
-  const registeredRol = perfil?.rol ?? 'cliente';
-  // Si el usuario es comercio, permite usar activeRolView (comercio o cliente); si no, forza registeredRol.
-  const rol  = registeredRol === 'comercio' ? (activeRolView || 'comercio') : registeredRol;
+  const rol = perfil?.rol ?? 'cliente';
   const tabs = ROL_TABS[rol] ?? ROL_TABS.cliente;
 
   const ROL_LABELS = {
@@ -446,28 +303,18 @@ export default function App() {
         </button>
 
         <div className="app-mobile-topbar-right">
-          {registeredRol === 'comercio' ? (
-            <div className="app-mobile-rol-switcher">
-              <div className="app-rol-toggle">
-                <button
-                  type="button"
-                  className={`app-rol-toggle-btn ${rol === 'comercio' ? 'app-rol-toggle-btn--active' : ''}`}
-                  onClick={() => handleSwitchMode('comercio')}
-                >
-                  <Store size={13} strokeWidth={2.2} />
-                  <span>Comercio</span>
-                </button>
-                <button
-                  type="button"
-                  className={`app-rol-toggle-btn ${rol === 'cliente' ? 'app-rol-toggle-btn--active app-rol-toggle-btn--active-cliente' : ''}`}
-                  onClick={() => handleSwitchMode('cliente')}
-                >
-                  <User size={13} strokeWidth={2.2} />
-                  <span>Cliente</span>
-                </button>
-              </div>
-            </div>
-          ) : registeredRol === 'repartidor' ? (
+          <ThemeToggle showLabel={false} size="sm" />
+          {rol === 'comercio' ? (
+            <button
+              type="button"
+              className="app-mobile-role-badge app-mobile-role-badge--comercio"
+              onClick={() => handleSelectTab('panel')}
+              title="Panel de comercio"
+            >
+              <Store size={13} strokeWidth={2.2} />
+              <span>Comercio</span>
+            </button>
+          ) : rol === 'repartidor' ? (
             <button
               type="button"
               className="app-mobile-role-badge app-mobile-role-badge--repartidor"
@@ -477,7 +324,7 @@ export default function App() {
               <Bike size={13} strokeWidth={2.2} />
               <span>Repartidor</span>
             </button>
-          ) : registeredRol === 'admin' ? (
+          ) : rol === 'admin' ? (
             <button
               type="button"
               className="app-mobile-role-badge app-mobile-role-badge--admin"
@@ -518,15 +365,18 @@ export default function App() {
                 </div>
                 <span className="app-mobile-brand-name">Levant</span>
               </div>
-              <button
-                type="button"
-                className="app-mobile-drawer-close"
-                onClick={() => setMobileMenuOpen(false)}
-                aria-label="Cerrar menú"
-                title="Cerrar menú"
-              >
-                <X size={18} strokeWidth={2.2} />
-              </button>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <ThemeToggle showLabel={false} size="sm" />
+                <button
+                  type="button"
+                  className="app-mobile-drawer-close"
+                  onClick={() => setMobileMenuOpen(false)}
+                  aria-label="Cerrar menú"
+                  title="Cerrar menú"
+                >
+                  <X size={18} strokeWidth={2.2} />
+                </button>
+              </div>
             </div>
 
             {/* Perfil del usuario */}
@@ -543,37 +393,6 @@ export default function App() {
                 </span>
               </div>
             </div>
-
-            {/* Alternar modo si es comercio */}
-            {registeredRol === 'comercio' && (
-              <div className="app-mobile-drawer-switcher">
-                <span className="app-mobile-drawer-switcher-label">Modo de Vista:</span>
-                <div className="app-rol-toggle">
-                  <button
-                    type="button"
-                    className={`app-rol-toggle-btn ${rol === 'comercio' ? 'app-rol-toggle-btn--active' : ''}`}
-                    onClick={() => {
-                      handleSwitchMode('comercio');
-                      setMobileMenuOpen(false);
-                    }}
-                  >
-                    <Store size={13} strokeWidth={2.2} />
-                    <span>Comercio</span>
-                  </button>
-                  <button
-                    type="button"
-                    className={`app-rol-toggle-btn ${rol === 'cliente' ? 'app-rol-toggle-btn--active app-rol-toggle-btn--active-cliente' : ''}`}
-                    onClick={() => {
-                      handleSwitchMode('cliente');
-                      setMobileMenuOpen(false);
-                    }}
-                  >
-                    <User size={13} strokeWidth={2.2} />
-                    <span>Cliente</span>
-                  </button>
-                </div>
-              </div>
-            )}
 
             {/* Lista de navegación con todas las pestañas */}
             <nav className="app-mobile-drawer-nav" role="tablist">
@@ -600,8 +419,8 @@ export default function App() {
                       setMobileMenuOpen(false);
                     }}
                   >
-                    <span className="app-tab-badge">
-                      {IconComp && <IconComp size={18} strokeWidth={2.2} className="app-tab-icon" />}
+                    <span className="app-tab-icon-wrap">
+                      {IconComp && <IconComp size={18} strokeWidth={2} className="app-tab-icon" />}
                       <PedidosRealtimeBadge
                         active={hasNewOrder && isOrdersTab}
                         count={newOrdersCount}
@@ -624,7 +443,7 @@ export default function App() {
                   supabase.auth.signOut();
                 }}
               >
-                <LogOut size={16} strokeWidth={2.2} />
+                <LogOut size={16} strokeWidth={2} />
                 <span>Cerrar Sesión</span>
               </button>
             </div>
@@ -654,16 +473,10 @@ export default function App() {
                   role="tab"
                   aria-selected={isActive}
                   className={`app-tab ${isActive ? 'app-tab--active' : ''}`}
-                  style={{
-                    '--tab-color': t.color,
-                    '--tab-bg': t.bg,
-                    '--tab-border': t.border,
-                    '--tab-glow': t.glow,
-                  }}
                   onClick={() => handleSelectTab(t.id)}
                 >
-                  <span className="app-tab-badge">
-                    {IconComp && <IconComp size={18} strokeWidth={2.2} className="app-tab-icon" />}
+                  <span className="app-tab-icon-wrap">
+                    {IconComp && <IconComp size={18} strokeWidth={2} className="app-tab-icon" />}
                     <PedidosRealtimeBadge
                       active={hasNewOrder && isOrdersTab}
                       count={newOrdersCount}
@@ -682,45 +495,22 @@ export default function App() {
             onClick={() => supabase.auth.signOut()}
             title="Cerrar Sesión"
           >
-            <span className="app-tab-badge" style={{ '--tab-bg': 'rgba(248,113,113,0.12)', '--tab-border': 'rgba(248,113,113,0.3)', '--tab-color': '#f87171', '--tab-glow': 'rgba(248,113,113,0.4)' }}>
-              <LogOut size={18} strokeWidth={2.2} className="app-tab-icon" />
+            <span className="app-tab-icon-wrap">
+              <LogOut size={18} strokeWidth={2} className="app-tab-icon" />
             </span>
             <span className="app-tab-label">Salir</span>
           </button>
         </div>
 
         <div className="app-sidebar-bottom">
-          {registeredRol === 'comercio' ? (
-            <div className="app-rol-switcher">
-              <span className="app-rol-label">Perfil / Modo</span>
-              <div className="app-rol-toggle">
-                <button
-                  type="button"
-                  className={`app-rol-toggle-btn ${rol === 'comercio' ? 'app-rol-toggle-btn--active' : ''}`}
-                  onClick={() => handleSwitchMode('comercio')}
-                >
-                  <Store size={13} strokeWidth={2.2} />
-                  <span>Comercio</span>
-                </button>
-                <button
-                  type="button"
-                  className={`app-rol-toggle-btn ${rol === 'cliente' ? 'app-rol-toggle-btn--active app-rol-toggle-btn--active-cliente' : ''}`}
-                  onClick={() => handleSwitchMode('cliente')}
-                >
-                  <User size={13} strokeWidth={2.2} />
-                  <span>Cliente</span>
-                </button>
-              </div>
-            </div>
-          ) : (
-            <span className={`app-rol-badge app-rol-badge--${rol}`}>
-              {rol === 'cliente'    && <User size={14} strokeWidth={2.2} />}
-              {rol === 'comercio'  && <Store size={14} strokeWidth={2.2} />}
-              {rol === 'repartidor'&& <Bike size={14} strokeWidth={2.2} />}
-              {rol === 'admin'     && <ShieldCheck size={14} strokeWidth={2.2} />}
-              <span>{rol.toUpperCase()}</span>
-            </span>
-          )}
+          <ThemeToggle showLabel={true} size="md" className="app-sidebar-theme-toggle" />
+          <span className={`app-rol-badge app-rol-badge--${rol}`}>
+            {rol === 'cliente'    && <User size={14} strokeWidth={2.2} />}
+            {rol === 'comercio'  && <Store size={14} strokeWidth={2.2} />}
+            {rol === 'repartidor'&& <Bike size={14} strokeWidth={2.2} />}
+            {rol === 'admin'     && <ShieldCheck size={14} strokeWidth={2.2} />}
+            <span>{rol.toUpperCase()}</span>
+          </span>
           <button id="btn-logout" className="app-logout"
             onClick={() => supabase.auth.signOut()}>
             <LogOut size={16} strokeWidth={2.1} />
@@ -736,8 +526,6 @@ export default function App() {
           <Dashboard
             session={session}
             rol={rol}
-            registeredRol={registeredRol}
-            onSwitchMode={handleSwitchMode}
             onSignOut={() => supabase.auth.signOut()}
             onGoToProfile={() => handleSelectTab(rol === 'cliente' ? 'perfil' : 'panel')}
             onGoToTracking={handleGoToTracking}

@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
+import ThemeToggle from '../common/ThemeToggle';
 import './Login.css';
 
 export default function Login() {
@@ -12,8 +13,28 @@ export default function Login() {
   const [loading, setLoading] = useState(false);
   const [error, setError]     = useState(null);
 
+  // Rate Limiting & Protección contra Fuerza Bruta
+  const [failedAttempts, setFailedAttempts] = useState(0);
+  const [lockoutSeconds, setLockoutSeconds] = useState(0);
+
+  // Temporizador de enfriamiento
+  useEffect(() => {
+    if (lockoutSeconds <= 0) return;
+    const timer = setInterval(() => {
+      setLockoutSeconds(prev => (prev > 1 ? prev - 1 : 0));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [lockoutSeconds]);
+
   const handleSubmit = async (e) => {
     e.preventDefault();
+
+    // Verificación de bloqueo por intentos fallidos
+    if (lockoutSeconds > 0) {
+      setError(`Demasiados intentos de acceso fallidos. Por seguridad, espera ${lockoutSeconds} segundos antes de reintentar.`);
+      return;
+    }
+
     setLoading(true);
     setError(null);
 
@@ -24,6 +45,10 @@ export default function Login() {
           password,
         });
         if (err) throw err;
+
+        // Éxito: reiniciar contador de intentos fallidos
+        setFailedAttempts(0);
+        setLockoutSeconds(0);
 
         // Si es comercio o repartidor, verificar si su correo ha sido activado por el administrador
         if (authData?.user) {
@@ -45,19 +70,25 @@ export default function Login() {
       } else {
         if (!nombre.trim() || nombre.length < 3) throw new Error('Ingresa un nombre válido (mín. 3 letras)');
         
+        const allowedRoles = ['cliente', 'comercio', 'repartidor'];
+        const safeRol = allowedRoles.includes(rol) ? rol : 'cliente';
+
         const { error: err } = await supabase.auth.signUp({
           email: email.trim(),
           password,
           options: {
             data: {
               nombre_completo: nombre.trim(),
-              rol: rol,
+              rol: safeRol,
             },
           },
         });
         if (err) throw err;
 
-        if (rol === 'cliente') {
+        setFailedAttempts(0);
+        setLockoutSeconds(0);
+
+        if (safeRol === 'cliente') {
           alert('¡Registro exitoso! Revisa tu correo electrónico para confirmar tu cuenta y poder ingresar.');
         } else {
           alert(
@@ -67,6 +98,16 @@ export default function Login() {
         setIsLogin(true);
       }
     } catch (err) {
+      if (isLogin) {
+        const nextAttempts = failedAttempts + 1;
+        setFailedAttempts(nextAttempts);
+        if (nextAttempts >= 5) {
+          setLockoutSeconds(30);
+          setError('⚠️ Demasiados intentos fallidos (5 de 5). Por seguridad y prevención de bots/fuerza bruta, el acceso se ha bloqueado temporalmente por 30 segundos.');
+          return;
+        }
+      }
+
       if (err.message && err.message.toLowerCase().includes('email not confirmed')) {
         setError('El correo electrónico no ha sido activado todavía. Por favor revisa tu bandeja de entrada o espera la activación del administrador.');
       } else {
@@ -79,6 +120,9 @@ export default function Login() {
 
   return (
     <div className="auth-wrapper">
+      <div className="auth-top-actions">
+        <ThemeToggle showLabel={true} size="sm" />
+      </div>
       <div className="auth-card">
         <div className="auth-header">
           <span className="auth-logo">
@@ -151,8 +195,16 @@ export default function Login() {
 
           {error && <div className="auth-error">⚠️ {error}</div>}
 
-          <button type="submit" className="auth-btn" disabled={loading}>
-            {loading ? <span className="auth-spinner" /> : (isLogin ? 'Ingresar' : 'Registrarse')}
+          <button type="submit" className="auth-btn" disabled={loading || lockoutSeconds > 0}>
+            {loading ? (
+              <span className="auth-spinner" />
+            ) : lockoutSeconds > 0 ? (
+              `⏳ Espera ${lockoutSeconds}s (Pausa de seguridad)`
+            ) : isLogin ? (
+              'Ingresar'
+            ) : (
+              'Registrarse'
+            )}
           </button>
         </form>
 

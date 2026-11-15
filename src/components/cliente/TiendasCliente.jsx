@@ -221,37 +221,81 @@ export default function TiendasCliente({ session, onGoToPago }) {
     try {
       // 1. Subir imagen del comprobante al bucket 'pagos' de Supabase
       const ext = pagoFile.name.split('.').pop();
-      const path = `comprobantes/${session.user.id}/${Date.now()}.${ext}`;
+      const path = `${session.user.id}/${Date.now()}.${ext}`;
       const { error: upErr } = await supabase.storage
         .from('pagos')
         .upload(path, pagoFile, { upsert: true });
 
       if (upErr) throw new Error('Error al subir el comprobante de pago: ' + upErr.message);
 
-      const { data: urlData } = supabase.storage.from('pagos').getPublicUrl(path);
-      const comprobante_url = urlData?.publicUrl || null;
+      // Generar URL firmada en bucket privado 'pagos'
+      const { data: signData, error: signErr } = await supabase.storage
+        .from('pagos')
+        .createSignedUrl(path, 60 * 60 * 24 * 365);
 
-      if (!comprobante_url) {
-        throw new Error('No se pudo generar la URL de la imagen del pago.');
+      if (signErr) {
+        console.warn('Error al generar createSignedUrl para el comprobante:', signErr);
       }
 
-      // 2. Crear pedido en pedidos_entregas (inicialmente sin repartidor)
-      const payload = {
-        cliente_id:       session.user.id,
-        comercio_id:      selected.id,
-        total_usd:        parseFloat(cartTotal.toFixed(2)),
-        direccion_entrega: direccion.trim() + (referencia.trim() ? ` (Ref: ${referencia.trim()})` : ''),
-        repartidor_id:    null,
-        estado:           'pendiente',
-      };
+      const comprobante_url = signData?.signedUrl || path;
 
-      const { data: pedido, error: pedErr } = await supabase
-        .from('pedidos_entregas')
-        .insert(payload)
-        .select('id, estado, total_usd, direccion_entrega, comercio_id, cliente_id, created_at')
-        .single();
+      if (!comprobante_url) {
+        throw new Error('No se pudo generar la URL segura de la imagen del pago.');
+      }
 
-      if (pedErr) throw pedErr;
+      // 2. Crear pedido de forma segura mediante RPC en backend (cálculo oficial de total y stock)
+      const direccionCompleta = direccion.trim() + (referencia.trim() ? ` (Ref: ${referencia.trim()})` : '');
+      const itemsPayload = cartItems.map(p => ({
+        producto_id: p.id,
+        cantidad: Number(cart[p.id]) || 1,
+      }));
+
+      let pedido = null;
+
+      const { data: rpcPedido, error: rpcErr } = await supabase.rpc('crear_pedido_cliente', {
+        p_comercio_id: selected.id,
+        p_direccion_entrega: direccionCompleta,
+        p_punto_referencia: referencia.trim() || null,
+        p_items: itemsPayload,
+      });
+
+      if (!rpcErr && rpcPedido) {
+        pedido = rpcPedido;
+      } else {
+        if (rpcErr) console.warn('RPC crear_pedido_cliente no disponible o fallback:', rpcErr.message);
+        // Fallback directo si la función RPC aún no ha sido ejecutada en Supabase
+        const payload = {
+          cliente_id:       session.user.id,
+          comercio_id:      selected.id,
+          total_usd:        parseFloat(cartTotal.toFixed(2)),
+          direccion_entrega: direccionCompleta,
+          repartidor_id:    null,
+          estado:           'pendiente',
+        };
+
+        const { data: directPed, error: pedErr } = await supabase
+          .from('pedidos_entregas')
+          .insert(payload)
+          .select('id, estado, total_usd, direccion_entrega, comercio_id, cliente_id, created_at')
+          .single();
+
+        if (pedErr) throw pedErr;
+        pedido = directPed;
+
+        // Insertar items del pedido manualmente en fallback
+        const items = cartItems.map(p => ({
+          pedido_id:   pedido.id,
+          producto_id: p.id,
+          cantidad:    cart[p.id],
+          precio_usd:  p.precio_usd,
+        }));
+
+        const { error: itemsErr } = await supabase
+          .from('pedido_items')
+          .insert(items);
+
+        if (itemsErr) throw itemsErr;
+      }
 
       // Emitir alerta inmediata de nuevo pedido a nivel local y cross-tab (0ms)
       if (typeof window !== 'undefined') {
@@ -264,20 +308,6 @@ export default function TiendasCliente({ session, onGoToPago }) {
         }
         window.dispatchEvent(new CustomEvent('levant_nuevo_pedido_global', { detail: { order: pedido } }));
       }
-
-      // 3. Insertar items del pedido
-      const items = cartItems.map(p => ({
-        pedido_id:   pedido.id,
-        producto_id: p.id,
-        cantidad:    cart[p.id],
-        precio_usd:  p.precio_usd,
-      }));
-
-      const { error: itemsErr } = await supabase
-        .from('pedido_items')
-        .insert(items);
-
-      if (itemsErr) throw itemsErr;
 
       // 4. Registrar el pago en reportes_pago con la imagen cargada
       const payloadPago = {

@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../../lib/supabase';
+import { getComprobanteSignedUrl } from '../../lib/storageHelper';
 import './HistorialCliente.css';
 
 const ESTADO_BADGE = {
@@ -62,7 +63,7 @@ export default function HistorialCliente({ session, onGoToPago }) {
           cantidad, precio_usd, subtotal_usd,
           productos ( nombre, imagen_url )
         ),
-        reportes_pago ( metodo, estado, referencia, monto_bs, monto_usd )
+        reportes_pago ( metodo, estado, referencia, monto_bs, monto_usd, comprobante_url )
       `)
       .eq('cliente_id', session.user.id)
       .order('created_at', { ascending: false });
@@ -355,6 +356,29 @@ export default function HistorialCliente({ session, onGoToPago }) {
                           <span className={`hc-pago-estado hc-pago-estado--${pedido.reportes_pago[0].estado}`}>
                             {' '}{pedido.reportes_pago[0].estado}
                           </span>
+                          {pedido.reportes_pago[0].comprobante_url && (
+                            <button
+                              type="button"
+                              onClick={async (e) => {
+                                e.stopPropagation();
+                                const sUrl = await getComprobanteSignedUrl(pedido.reportes_pago[0].comprobante_url);
+                                if (sUrl) window.open(sUrl, '_blank', 'noopener,noreferrer');
+                              }}
+                              style={{
+                                marginLeft: '8px',
+                                fontSize: '0.72rem',
+                                padding: '2px 8px',
+                                borderRadius: '4px',
+                                border: '1px solid var(--surface-border, #D2D5D8)',
+                                background: 'var(--surface, #FFFFFF)',
+                                cursor: 'pointer',
+                                color: 'var(--text-primary, #1A1A1A)'
+                              }}
+                              title="Ver comprobante de pago seguro mediante URL firmada"
+                            >
+                              📸 Ver
+                            </button>
+                          )}
                         </span>
                       </div>
                     ) : (

@@ -1,5 +1,6 @@
 /* ==========================================================================
    RepartidorAlertas.css — Alertas y Notificaciones para Repartidores
+   Tema Polaris / Wise (claro)
    ========================================================================== */
 
 @import '../comercio/ComercioAlertas.css';
@@ -20,17 +21,12 @@
 .ra-toast {
   pointer-events: auto;
   position: relative;
-  background: rgba(13, 17, 27, 0.96);
-  border: 1px solid rgba(245, 158, 11, 0.35);
-  border-radius: 16px;
+  background: #FFFFFF;
+  border: 1px solid #E1E3E5;
+  border-radius: 12px;
   padding: 1rem 1.15rem;
-  box-shadow: 
-    0 12px 36px rgba(0, 0, 0, 0.65),
-    0 0 24px rgba(245, 158, 11, 0.22),
-    inset 0 1px 0 rgba(255, 255, 255, 0.1);
-  backdrop-filter: blur(18px);
-  -webkit-backdrop-filter: blur(18px);
-  color: #f8fafc;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.08);
+  color: #1A1A1A;
   font-family: 'Inter', -apple-system, sans-serif;
   animation: raSlideIn 0.38s cubic-bezier(0.16, 1, 0.3, 1) forwards;
   overflow: hidden;
@@ -38,19 +34,11 @@
 }
 
 .ra-toast--valoracion {
-  border-color: rgba(251, 191, 36, 0.45);
-  box-shadow: 
-    0 12px 36px rgba(0, 0, 0, 0.65),
-    0 0 24px rgba(251, 191, 36, 0.28),
-    inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  border-color: #FFE0B2;
 }
 
 .ra-toast--pedido {
-  border-color: rgba(56, 189, 248, 0.4);
-  box-shadow: 
-    0 12px 36px rgba(0, 0, 0, 0.65),
-    0 0 24px rgba(56, 189, 248, 0.25),
-    inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  border-color: #C3DCF7;
 }
 
 @keyframes raSlideIn {
@@ -64,19 +52,13 @@
   }
 }
 
+/* Eliminar glow */
 .ra-toast-top-glow {
-  position: absolute;
-  top: 0;
-  left: 15%;
-  right: 15%;
-  height: 2px;
-  background: linear-gradient(90deg, transparent, #fbbf24, #f59e0b, transparent);
-  box-shadow: 0 0 12px #fbbf24;
+  display: none;
 }
 
 .ra-toast--pedido .ra-toast-top-glow {
-  background: linear-gradient(90deg, transparent, #38bdf8, #818cf8, transparent);
-  box-shadow: 0 0 12px #38bdf8;
+  display: none;
 }
 
 .ra-toast-main {
@@ -90,33 +72,31 @@
   width: 44px;
   height: 44px;
   border-radius: 13px;
-  background: radial-gradient(circle at 30% 30%, rgba(245, 158, 11, 0.25), rgba(217, 119, 6, 0.15));
-  border: 1px solid rgba(245, 158, 11, 0.4);
+  background: #F1F2F4;
+  border: 1px solid #E1E3E5;
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 1.35rem;
   flex-shrink: 0;
-  box-shadow: 0 0 16px rgba(245, 158, 11, 0.3);
 }
 
 .ra-toast--pedido .ra-toast-icon-wrap {
-  background: radial-gradient(circle at 30% 30%, rgba(56, 189, 248, 0.25), rgba(99, 102, 241, 0.15));
-  border-color: rgba(56, 189, 248, 0.4);
-  box-shadow: 0 0 16px rgba(56, 189, 248, 0.3);
+  background: #EAF4FD;
+  border-color: #C3DCF7;
 }
 
 .ra-toast-pulse {
   position: absolute;
   inset: -3px;
   border-radius: 15px;
-  border: 1.5px solid rgba(245, 158, 11, 0.6);
+  border: 1.5px solid rgba(0,0,0,0.1);
   animation: raPulseRing 2s infinite ease-out;
   pointer-events: none;
 }
 
 .ra-toast--pedido .ra-toast-pulse {
-  border-color: rgba(56, 189, 248, 0.6);
+  border-color: rgba(19,81,180,0.2);
 }
 
 @keyframes raPulseRing {
@@ -147,21 +127,21 @@
   letter-spacing: 0.05em;
   padding: 0.2rem 0.55rem;
   border-radius: 999px;
-  background: rgba(245, 158, 11, 0.18);
-  color: #fbbf24;
-  border: 1px solid rgba(245, 158, 11, 0.35);
+  background: #F1F2F4;
+  color: #616161;
+  border: 1px solid #E1E3E5;
 }
 
 .ra-toast--pedido .ra-toast-badge {
-  background: rgba(56, 189, 248, 0.18);
-  color: #38bdf8;
-  border-color: rgba(56, 189, 248, 0.35);
+  background: #EAF4FD;
+  color: #1351B4;
+  border-color: #C3DCF7;
 }
 
 .ra-toast-close {
   background: transparent;
   border: none;
-  color: #94a3b8;
+  color: #616161;
   cursor: pointer;
   padding: 0.2rem;
   border-radius: 6px;
@@ -173,21 +153,21 @@
 }
 
 .ra-toast-close:hover {
-  color: #f1f5f9;
-  background: rgba(255, 255, 255, 0.08);
+  color: #1A1A1A;
+  background: #F1F2F4;
 }
 
 .ra-toast-title {
   font-size: 0.94rem;
   font-weight: 700;
   margin: 0 0 0.3rem 0;
-  color: #ffffff;
+  color: #1A1A1A;
   line-height: 1.25;
 }
 
 .ra-toast-desc {
   font-size: 0.81rem;
-  color: #cbd5e1;
+  color: #616161;
   margin: 0 0 0.75rem 0;
   line-height: 1.4;
 }
@@ -196,13 +176,13 @@
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  background: rgba(251, 191, 36, 0.08);
-  border: 1px solid rgba(251, 191, 36, 0.25);
+  background: #FFFBF0;
+  border: 1px solid #FFE0B2;
   border-radius: 9px;
   padding: 0.4rem 0.65rem;
   margin-bottom: 0.75rem;
   font-size: 0.82rem;
-  color: #fcd34d;
+  color: #9E6C00;
 }
 
 .ra-toast-actions {
@@ -217,34 +197,31 @@
   justify-content: center;
   gap: 0.4rem;
   padding: 0.5rem 0.85rem;
-  background: linear-gradient(135deg, #f59e0b, #d97706);
-  border: 1px solid rgba(251, 191, 36, 0.5);
-  border-radius: 9px;
-  color: #ffffff;
+  background: #1A1A1A;
+  border: none;
+  border-radius: 6px;
+  color: #FFFFFF;
   font-size: 0.79rem;
   font-weight: 600;
   cursor: pointer;
-  box-shadow: 0 4px 14px rgba(245, 158, 11, 0.35);
-  transition: all 0.2s ease;
+  transition: background 0.2s ease;
 }
 
 .ra-toast--pedido .ra-toast-btn-primary {
-  background: linear-gradient(135deg, #0284c7, #2563eb);
-  border-color: rgba(56, 189, 248, 0.5);
-  box-shadow: 0 4px 14px rgba(2, 132, 199, 0.35);
+  background: #1A1A1A;
+  border: none;
 }
 
 .ra-toast-btn-primary:hover {
-  filter: brightness(1.1);
-  transform: translateY(-1px);
+  background: #303030;
 }
 
 .ra-toast-btn-secondary {
   padding: 0.5rem 0.75rem;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 9px;
-  color: #94a3b8;
+  background: #F1F2F4;
+  border: 1px solid #E1E3E5;
+  border-radius: 6px;
+  color: #616161;
   font-size: 0.79rem;
   font-weight: 500;
   cursor: pointer;
@@ -252,8 +229,8 @@
 }
 
 .ra-toast-btn-secondary:hover {
-  background: rgba(255, 255, 255, 0.08);
-  color: #f1f5f9;
+  background: #E1E3E5;
+  color: #1A1A1A;
 }
 
 /* ── Mobile ── */

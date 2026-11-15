@@ -171,14 +171,22 @@ export default function ReportePago({ session, pedidoId, onReported }) {
       }
 
       const ext  = file.name.split('.').pop();
-      const path = `comprobantes/${session.user.id}/${Date.now()}.${ext}`;
+      const path = `${session.user.id}/${Date.now()}.${ext}`;
       const { error: upErr } = await supabase.storage
         .from('pagos')
         .upload(path, file, { upsert: true });
       if (upErr) throw upErr;
 
-      const { data: urlData } = supabase.storage.from('pagos').getPublicUrl(path);
-      comprobante_url = urlData.publicUrl;
+      // Generar URL firmada en bucket privado 'pagos'
+      const { data: signData, error: signErr } = await supabase.storage
+        .from('pagos')
+        .createSignedUrl(path, 60 * 60 * 24 * 365);
+
+      if (signErr) {
+        console.warn('Error al generar createSignedUrl para el comprobante:', signErr);
+      }
+
+      comprobante_url = signData?.signedUrl || path;
 
       const pId = selectedPedidoId || pedidoId || null;
 

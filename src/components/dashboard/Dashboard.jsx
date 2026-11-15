@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { supabase } from '../../lib/supabase';
+import { getComprobanteSignedUrl } from '../../lib/storageHelper';
 import { 
   BoxIcon, CheckCircleIcon, DollarIcon, StarIcon, MotoIcon, 
   ShoppingBagIcon, CloseIcon, WrenchIcon 
@@ -28,33 +29,50 @@ import {
 import { playNewOrderSound, playOrderDeliveredSound, triggerDesktopNotification } from '../comercio/comercioAlertSound';
 import './Dashboard.css';
 
-// ── Colores ──────────────────────────────────────────
+// ── Colores y Estados (Shopify Polaris / Wise Palette) ────────────────
 const COLORS = {
-  purple:   '#6c63ff',
-  blue:     '#3b82f6',
-  green:    '#10b981',
-  yellow:   '#f59e0b',
-  red:      '#f87171',
-  cyan:     '#06b6d4',
-  pink:     '#ec4899',
-  indigo:   '#818cf8',
+  charcoal: '#1A1A1A',
+  slate:    '#4A4A4A',
+  gray:     '#616161',
+  green:    '#108043',
+  yellow:   '#9E6C00',
+  red:      '#D72C0D',
+  blue:     '#1351B4',
+  purple:   '#1A1A1A',
+  cyan:     '#1351B4',
+  pink:     '#D72C0D',
+  indigo:   '#1A1A1A',
 };
 
+const ESTADO_THEME = {
+  pendiente:      { bg: '#FFF5EA', color: '#9E6C00', border: '#FFE0B2', label: 'Pendiente' },
+  confirmado:     { bg: '#EAF4FD', color: '#1351B4', border: '#C3DCF7', label: 'Confirmado' },
+  en_preparacion: { bg: '#FFF5EA', color: '#9E6C00', border: '#FFE0B2', label: 'En preparación' },
+  en_camino:      { bg: '#FFF5EA', color: '#9E6C00', border: '#FFE0B2', label: 'En camino' },
+  entregado:      { bg: '#E3F1DF', color: '#108043', border: '#C3E3B9', label: 'Entregado' },
+  cancelado:      { bg: '#FBEAE5', color: '#D72C0D', border: '#F7C5B8', label: 'Cancelado' },
+  disponible:     { bg: '#E3F1DF', color: '#108043', border: '#C3E3B9', label: 'Disponible' },
+};
+
+function getStatusTheme(estado) {
+  return ESTADO_THEME[estado] || { bg: '#F1F2F4', color: '#616161', border: '#E1E3E5', label: estado || '—' };
+}
+
 const ESTADO_COLOR = {
-  pendiente:      COLORS.yellow,
-  confirmado:     COLORS.blue,
-  en_preparacion: COLORS.cyan,
-  en_camino:      COLORS.purple,
-  entregado:      COLORS.green,
-  cancelado:      COLORS.red,
+  pendiente:      '#9E6C00',
+  confirmado:     '#1351B4',
+  en_preparacion: '#9E6C00',
+  en_camino:      '#9E6C00',
+  entregado:      '#108043',
+  cancelado:      '#D72C0D',
 };
 
 const METODO_COLOR = {
-  pago_movil:       COLORS.blue,
-  zelle:            COLORS.green,
-  transferencia:    COLORS.purple,
-  efectivo_usd:     COLORS.yellow,
-  efectivo_bs:      COLORS.cyan,
+  pago_movil:       '#1351B4',
+  zelle:            '#108043',
+  transferencia:    '#1A1A1A',
+  efectivo_usd:     '#9E6C00',
+  efectivo_bs:      '#1351B4',
 };
 
 // ── Utilidades ───────────────────────────────────────
@@ -106,7 +124,7 @@ function BarChart({ data, height = 160, valuePrefix = '', valueSuffix = '' }) {
           const pct = (d.value / max) * 100;
           return (
             <div key={i} className="db-bar-col">
-              <span className="db-bar-val">
+              <span className="db-bar-val tabular-nums">
                 {valuePrefix}{fmt(d.value)}{valueSuffix}
               </span>
               <div className="db-bar-track">
@@ -114,8 +132,7 @@ function BarChart({ data, height = 160, valuePrefix = '', valueSuffix = '' }) {
                   className="db-bar-fill"
                   style={{
                     height: `${pct}%`,
-                    background: d.color || COLORS.purple,
-                    boxShadow: `0 0 12px ${(d.color || COLORS.purple)}55`,
+                    background: d.color || '#1A1A1A',
                   }}
                 />
               </div>
@@ -128,8 +145,8 @@ function BarChart({ data, height = 160, valuePrefix = '', valueSuffix = '' }) {
   );
 }
 
-// ── KPI card (Estilo Soft UI / Dark Neumorphism) ───────
-function KpiCard({ icon: Icon, tag = 'Servicio', label, value, sub, color = '#f59e0b', iconBg = '#38281a', onClick }) {
+// ── KPI card (Estilo Shopify Polaris) ──────────────────
+function KpiCard({ icon: Icon, tag = 'Servicio', label, value, sub, onClick }) {
   return (
     <div
       className={`db-kpi ${onClick ? 'db-kpi--clickable' : ''}`}
@@ -139,21 +156,21 @@ function KpiCard({ icon: Icon, tag = 'Servicio', label, value, sub, color = '#f5
       onKeyDown={onClick ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick(); } } : undefined}
     >
       <div className="db-kpi-top">
-        <div className="db-kpi-icon-wrap" style={{ background: iconBg, borderColor: `${color}44` }}>
+        <div className="db-kpi-icon-wrap">
           {typeof Icon === 'function' ? (
-            <Icon size={24} color={color} />
+            <Icon size={20} strokeWidth={2} />
           ) : (
-            <span style={{ fontSize: '1.4rem' }}>{Icon}</span>
+            <span style={{ fontSize: '1.25rem' }}>{Icon}</span>
           )}
         </div>
         {tag && (
-          <span className="db-kpi-tag" style={{ background: iconBg, color, borderColor: `${color}44` }}>
+          <span className="db-kpi-tag">
             {tag}
           </span>
         )}
       </div>
       <p className="db-kpi-label">{label}</p>
-      <p className="db-kpi-value" style={{ color }}>{value}</p>
+      <p className="db-kpi-value tabular-nums">{value}</p>
       {sub && <p className="db-kpi-sub">{sub}</p>}
       {onClick && (
         <div className="db-kpi-click-hint">
@@ -183,8 +200,6 @@ function KpiDetailModal({ kpi, onClose }) {
     tag,
     label,
     value,
-    color = '#f59e0b',
-    iconBg = '#38281a',
     icon: Icon,
     metrics = [],
     breakdownTitle,
@@ -196,14 +211,14 @@ function KpiDetailModal({ kpi, onClose }) {
 
   return (
     <div className="db-modal-overlay" onClick={onClose} role="dialog" aria-modal="true" aria-label={title || label}>
-      <div className="db-modal-card" onClick={e => e.stopPropagation()} style={{ borderColor: `${color}33` }}>
+      <div className="db-modal-card" onClick={e => e.stopPropagation()}>
         <div className="db-modal-header">
           <div className="db-modal-header-left">
-            <div className="db-kpi-icon-wrap" style={{ background: iconBg, borderColor: `${color}44` }}>
+            <div className="db-kpi-icon-wrap">
               {typeof Icon === 'function' ? (
-                <Icon size={24} color={color} />
+                <Icon size={20} strokeWidth={2} />
               ) : (
-                <span style={{ fontSize: '1.4rem' }}>{Icon}</span>
+                <span style={{ fontSize: '1.25rem' }}>{Icon}</span>
               )}
             </div>
             <div>
@@ -218,13 +233,13 @@ function KpiDetailModal({ kpi, onClose }) {
 
         <div className="db-modal-body">
           {/* Banner con valor principal */}
-          <div className="db-modal-banner" style={{ borderColor: `${color}33` }}>
+          <div className="db-modal-banner">
             <div>
               <span className="db-modal-stat-label">{label}</span>
-              <div className="db-modal-banner-val" style={{ color }}>{value}</div>
+              <div className="db-modal-banner-val tabular-nums">{value}</div>
             </div>
             {tag && (
-              <span className="db-modal-banner-tag" style={{ background: iconBg, color, borderColor: `${color}44`, border: '1px solid' }}>
+              <span className="db-modal-banner-tag">
                 {tag}
               </span>
             )}
@@ -236,7 +251,7 @@ function KpiDetailModal({ kpi, onClose }) {
               {metrics.map((m, idx) => (
                 <div key={idx} className="db-modal-stat-card">
                   <span className="db-modal-stat-label">{m.label}</span>
-                  <span className="db-modal-stat-value" style={{ color: m.color || '#f1f5f9' }}>{m.value}</span>
+                  <span className="db-modal-stat-value tabular-nums">{m.value}</span>
                   {m.sub && <span className="db-modal-stat-sub">{m.sub}</span>}
                 </div>
               ))}
@@ -252,18 +267,16 @@ function KpiDetailModal({ kpi, onClose }) {
                   <div key={idx} className="db-modal-breakdown-item">
                     <div className="db-modal-breakdown-row">
                       <span className="db-modal-breakdown-label">
-                        <span className="db-modal-breakdown-dot" style={{ background: b.color || color }} />
+                        <span className="db-modal-breakdown-dot" />
                         {b.label}
                       </span>
-                      <span className="db-modal-breakdown-val">{b.value}</span>
+                      <span className="db-modal-breakdown-val tabular-nums">{b.value}</span>
                     </div>
                     <div className="db-modal-progress-track">
                       <div
                         className="db-modal-progress-fill"
                         style={{
                           width: `${Math.min(100, Math.max(0, b.percent ?? 0))}%`,
-                          background: b.color || color,
-                          boxShadow: `0 0 8px ${(b.color || color)}55`,
                         }}
                       />
                     </div>
@@ -286,11 +299,7 @@ function KpiDetailModal({ kpi, onClose }) {
                     </div>
                     {it.badge && (
                       <span
-                        className="db-modal-item-badge"
-                        style={{
-                          background: it.badgeBg || 'rgba(255,255,255,0.08)',
-                          color: it.badgeColor || '#e2e8f0',
-                        }}
+                        className="db-modal-item-badge tabular-nums"
                       >
                         {it.badge}
                       </span>
@@ -334,7 +343,7 @@ function Section({ title, subtitle, children }) {
 }
 
 // ── Avatar / menú de perfil ──────────────────────────────────────
-function ProfileMenu({ session, onSignOut, onGoToProfile, registeredRol, currentRol, onSwitchMode }) {
+function ProfileMenu({ session, onSignOut, onGoToProfile }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
 
@@ -365,31 +374,6 @@ function ProfileMenu({ session, onSignOut, onGoToProfile, registeredRol, current
         <div className="db-profile-dropdown">
           <div className="db-profile-dropdown-email">{email}</div>
 
-          {registeredRol === 'comercio' && (
-            <>
-              <button
-                className="db-profile-dropdown-item db-profile-dropdown-item--mode"
-                onClick={() => {
-                  setOpen(false);
-                  onSwitchMode?.(currentRol === 'comercio' ? 'cliente' : 'comercio');
-                }}
-              >
-                {currentRol === 'comercio' ? (
-                  <>
-                    <User size={15} strokeWidth={2.1} />
-                    <span>Cambiar a Modo Cliente</span>
-                  </>
-                ) : (
-                  <>
-                    <Store size={15} strokeWidth={2.1} />
-                    <span>Volver a Modo Comercio</span>
-                  </>
-                )}
-              </button>
-              <div className="db-profile-dropdown-divider" />
-            </>
-          )}
-
           <button
             className="db-profile-dropdown-item"
             onClick={() => { setOpen(false); onGoToProfile?.(); }}
@@ -414,7 +398,7 @@ function ProfileMenu({ session, onSignOut, onGoToProfile, registeredRol, current
 // ════════════════════════════════════════════════════
 // DASHBOARD CLIENTE
 // ════════════════════════════════════════════════════
-function DashboardCliente({ session, onSignOut, onGoToProfile, registeredRol, currentRol, onSwitchMode, onGoToTracking, onGoToHistorial, onGoToPago, onGoToTiendas }) {
+function DashboardCliente({ session, onSignOut, onGoToProfile, onGoToTracking, onGoToHistorial, onGoToPago, onGoToTiendas }) {
   const [pedidos, setPedidos]         = useState([]);
   const [loading, setLoading]         = useState(true);
   const [filter, setFilter]           = useState('todos');
@@ -461,7 +445,7 @@ function DashboardCliente({ session, onSignOut, onGoToProfile, registeredRol, cu
           cantidad, precio_usd, subtotal_usd,
           productos ( id, nombre, imagen_url )
         ),
-        reportes_pago ( metodo, estado, referencia, monto_bs, monto_usd )
+        reportes_pago ( metodo, estado, referencia, monto_bs, monto_usd, comprobante_url )
       `)
       .eq('cliente_id', session.user.id)
       .order('created_at', { ascending: false });
@@ -734,28 +718,7 @@ function DashboardCliente({ session, onSignOut, onGoToProfile, registeredRol, cu
             </div>
           )}
 
-          {registeredRol === 'comercio' ? (
-            <div className="db-rol-toggle">
-              <button
-                type="button"
-                className={`db-rol-toggle-btn ${currentRol === 'comercio' ? 'db-rol-toggle-btn--active' : ''}`}
-                onClick={() => onSwitchMode?.('comercio')}
-              >
-                <Store size={12} strokeWidth={2.2} />
-                <span>Comercio</span>
-              </button>
-              <button
-                type="button"
-                className={`db-rol-toggle-btn ${currentRol === 'cliente' ? 'db-rol-toggle-btn--active db-rol-toggle-btn--active-cliente' : ''}`}
-                onClick={() => onSwitchMode?.('cliente')}
-              >
-                <User size={12} strokeWidth={2.2} />
-                <span>Cliente</span>
-              </button>
-            </div>
-          ) : (
-            <span className="db-hero-badge db-hero-badge--cliente">👤 Cliente</span>
-          )}
+          <span className="db-hero-badge db-hero-badge--cliente">👤 Cliente</span>
 
           {/* Campana de Notificaciones y Alertas de Cliente */}
           <div className="db-hero-alerts-bell-wrap">
@@ -788,9 +751,6 @@ function DashboardCliente({ session, onSignOut, onGoToProfile, registeredRol, cu
             session={session}
             onSignOut={onSignOut}
             onGoToProfile={onGoToProfile}
-            registeredRol={registeredRol}
-            currentRol={currentRol}
-            onSwitchMode={onSwitchMode}
           />
         </div>
       </div>
@@ -1145,7 +1105,7 @@ function DashboardCliente({ session, onSignOut, onGoToProfile, registeredRol, cu
               const isOpen     = expanded === pedido.id;
               const tienePago  = pedido.reportes_pago?.length > 0;
               const yaConfirmo = Boolean(pedido.confirmacion_cliente || pedido.valoracion);
-              const badgeColor = ESTADO_COLOR[pedido.estado] || '#64748b';
+              const st         = getStatusTheme(pedido.estado);
               const badgeLabel = pedido.estado === 'entregado' && !yaConfirmo
                 ? 'Por confirmar'
                 : (ESTADO_LABEL[pedido.estado] || pedido.estado);
@@ -1161,7 +1121,7 @@ function DashboardCliente({ session, onSignOut, onGoToProfile, registeredRol, cu
                     <div className="db-day-card-left">
                       <span
                         className="db-day-badge"
-                        style={{ background: `${badgeColor}22`, color: badgeColor, border: `1px solid ${badgeColor}44` }}
+                        style={{ background: st.bg, color: st.color, border: `1px solid ${st.border}` }}
                       >
                         {badgeLabel}
                       </span>
@@ -1226,6 +1186,29 @@ function DashboardCliente({ session, onSignOut, onGoToProfile, registeredRol, cu
                               <span style={{ color: pedido.reportes_pago[0].estado === 'verificado' ? '#10b981' : '#f59e0b' }}>
                                 {pedido.reportes_pago[0].estado}
                               </span>
+                              {pedido.reportes_pago[0].comprobante_url && (
+                                <button
+                                  type="button"
+                                  onClick={async (e) => {
+                                    e.stopPropagation();
+                                    const sUrl = await getComprobanteSignedUrl(pedido.reportes_pago[0].comprobante_url);
+                                    if (sUrl) window.open(sUrl, '_blank', 'noopener,noreferrer');
+                                  }}
+                                  style={{
+                                    marginLeft: '8px',
+                                    fontSize: '0.72rem',
+                                    padding: '2px 6px',
+                                    borderRadius: '4px',
+                                    border: '1px solid var(--surface-border, #D2D5D8)',
+                                    background: 'var(--surface, #FFFFFF)',
+                                    color: 'var(--text-primary, #1A1A1A)',
+                                    cursor: 'pointer'
+                                  }}
+                                  title="Ver comprobante privado mediante URL firmada"
+                                >
+                                  📸 Ver
+                                </button>
+                              )}
                             </span>
                           ) : (
                             <span style={{ color: '#f87171' }}>Sin reporte de pago</span>
@@ -1313,7 +1296,7 @@ function DashboardCliente({ session, onSignOut, onGoToProfile, registeredRol, cu
 // ════════════════════════════════════════════════════
 // DASHBOARD COMERCIO
 // ════════════════════════════════════════════════════
-function DashboardComercio({ session, onSignOut, onGoToProfile, registeredRol, currentRol, onSwitchMode, onGoToTiendas }) {
+function DashboardComercio({ session, onSignOut, onGoToProfile }) {
   const [pedidos, setPedidos]       = useState([]);
   const [productos, setProductos]   = useState([]);
   const [comercio, setComercio]     = useState(null);
@@ -1361,7 +1344,7 @@ function DashboardComercio({ session, onSignOut, onGoToProfile, registeredRol, c
             cantidad, precio_usd, subtotal_usd,
             productos ( id, nombre, imagen_url, precio_usd )
           ),
-          reportes_pago ( metodo, estado, referencia, monto_bs, monto_usd )
+          reportes_pago ( metodo, estado, referencia, monto_bs, monto_usd, comprobante_url )
         `)
         .eq('comercio_id', com.id)
         .order('created_at', { ascending: false }),
@@ -1903,22 +1886,6 @@ function DashboardComercio({ session, onSignOut, onGoToProfile, registeredRol, c
           <p className="db-hero-sub" style={{ textTransform: 'capitalize' }}>{dateLabel} · {comercio.categoria}</p>
         </div>
         <div className="db-hero-right">
-          {/* Botón directo Realizar Pedido */}
-          <button
-            type="button"
-            className="db-hero-order-cta"
-            onClick={() => {
-              if (onSwitchMode && currentRol === 'comercio') {
-                onSwitchMode('cliente');
-              }
-              onGoToTiendas?.();
-            }}
-            title="Explorar tiendas y realizar pedido"
-          >
-            <span className="db-hero-order-cta-icon">🛍️</span>
-            <span>Realizar Pedido</span>
-          </button>
-
           {/* Píldora de Alerta en Vivo justo en este encabezado */}
           {activeAlertPill && (
             <div
@@ -1959,28 +1926,7 @@ function DashboardComercio({ session, onSignOut, onGoToProfile, registeredRol, c
             </div>
           )}
 
-          {registeredRol === 'comercio' ? (
-            <div className="db-rol-toggle">
-              <button
-                type="button"
-                className={`db-rol-toggle-btn ${currentRol === 'comercio' ? 'db-rol-toggle-btn--active' : ''}`}
-                onClick={() => onSwitchMode?.('comercio')}
-              >
-                <Store size={12} strokeWidth={2.2} />
-                <span>Comercio</span>
-              </button>
-              <button
-                type="button"
-                className={`db-rol-toggle-btn ${currentRol === 'cliente' ? 'db-rol-toggle-btn--active db-rol-toggle-btn--active-cliente' : ''}`}
-                onClick={() => onSwitchMode?.('cliente')}
-              >
-                <User size={12} strokeWidth={2.2} />
-                <span>Cliente</span>
-              </button>
-            </div>
-          ) : (
-            <span className="db-hero-badge db-hero-badge--comercio">🏪 Comercio</span>
-          )}
+          <span className="db-hero-badge db-hero-badge--comercio">🏪 Comercio</span>
 
           {/* Campana de Notificaciones y Alertas de Comercio */}
           <div className="db-hero-alerts-bell-wrap">
@@ -2018,9 +1964,6 @@ function DashboardComercio({ session, onSignOut, onGoToProfile, registeredRol, c
             session={session}
             onSignOut={onSignOut}
             onGoToProfile={onGoToProfile}
-            registeredRol={registeredRol}
-            currentRol={currentRol}
-            onSwitchMode={onSwitchMode}
           />
         </div>
       </div>
@@ -2299,7 +2242,7 @@ function DashboardComercio({ session, onSignOut, onGoToProfile, registeredRol, c
             {filtrados.map(pedido => {
               const isOpen     = expanded === pedido.id;
               const tienePago  = pedido.reportes_pago?.length > 0;
-              const badgeColor = ESTADO_COLOR[pedido.estado] || '#64748b';
+              const st         = getStatusTheme(pedido.estado);
               const badgeLabel = ESTADO_LABEL[pedido.estado] || pedido.estado;
 
               return (
@@ -2313,7 +2256,7 @@ function DashboardComercio({ session, onSignOut, onGoToProfile, registeredRol, c
                     <div className="db-day-card-left">
                       <span
                         className="db-day-badge"
-                        style={{ background: `${badgeColor}22`, color: badgeColor, border: `1px solid ${badgeColor}44` }}
+                        style={{ background: st.bg, color: st.color, border: `1px solid ${st.border}` }}
                       >
                         {badgeLabel}
                       </span>
@@ -2375,6 +2318,29 @@ function DashboardComercio({ session, onSignOut, onGoToProfile, registeredRol, c
                               <span style={{ color: pedido.reportes_pago[0].estado === 'verificado' ? '#10b981' : '#f59e0b' }}>
                                 {pedido.reportes_pago[0].estado}
                               </span>
+                              {pedido.reportes_pago[0].comprobante_url && (
+                                <button
+                                  type="button"
+                                  onClick={async (e) => {
+                                    e.stopPropagation();
+                                    const sUrl = await getComprobanteSignedUrl(pedido.reportes_pago[0].comprobante_url);
+                                    if (sUrl) window.open(sUrl, '_blank', 'noopener,noreferrer');
+                                  }}
+                                  style={{
+                                    marginLeft: '8px',
+                                    fontSize: '0.72rem',
+                                    padding: '2px 6px',
+                                    borderRadius: '4px',
+                                    border: '1px solid var(--surface-border, #D2D5D8)',
+                                    background: 'var(--surface, #FFFFFF)',
+                                    color: 'var(--text-primary, #1A1A1A)',
+                                    cursor: 'pointer'
+                                  }}
+                                  title="Ver comprobante privado mediante URL firmada"
+                                >
+                                  📸 Ver
+                                </button>
+                              )}
                             </span>
                           ) : (
                             <span style={{ color: '#f87171' }}>Sin reporte de pago</span>
@@ -2400,7 +2366,7 @@ function DashboardComercio({ session, onSignOut, onGoToProfile, registeredRol, c
 // ════════════════════════════════════════════════════
 // DASHBOARD REPARTIDOR
 // ════════════════════════════════════════════════════
-function DashboardRepartidor({ session, onSignOut, onGoToProfile, registeredRol, currentRol, onSwitchMode, onGoToPedidos, onGoToHistorial }) {
+function DashboardRepartidor({ session, onSignOut, onGoToProfile, onGoToPedidos, onGoToHistorial }) {
   const [pedidos, setPedidos]       = useState([]);
   const [repartidor, setRepartidor] = useState(null);
   const [loading, setLoading]       = useState(true);
@@ -2714,9 +2680,6 @@ function DashboardRepartidor({ session, onSignOut, onGoToProfile, registeredRol,
             session={session}
             onSignOut={onSignOut}
             onGoToProfile={onGoToProfile}
-            registeredRol={registeredRol}
-            currentRol={currentRol}
-            onSwitchMode={onSwitchMode}
           />
         </div>
       </div>
@@ -2972,7 +2935,7 @@ function DashboardRepartidor({ session, onSignOut, onGoToProfile, registeredRol,
             {filtradosOrders.map(pedido => {
               const isOpen = expandedOrderId === pedido.id;
               const isActivo = pedido.estado !== 'entregado' && pedido.estado !== 'cancelado';
-              const badgeColor = REP_ESTADO_COLOR[pedido.estado] || '#64748b';
+              const st = getStatusTheme(pedido.estado);
               const badgeLabel = REP_ESTADO_LABEL[pedido.estado] || pedido.estado;
               const comercioName = pedido.comercios_datos?.nombre_comercial || 'Comercio';
               const clientName = pedido.profiles?.nombre_completo || 'Cliente';
@@ -2989,7 +2952,7 @@ function DashboardRepartidor({ session, onSignOut, onGoToProfile, registeredRol,
                     <div className="db-day-card-left">
                       <span
                         className="db-day-badge"
-                        style={{ background: `${badgeColor}22`, color: badgeColor, border: `1px solid ${badgeColor}44` }}
+                        style={{ background: st.bg, color: st.color, border: `1px solid ${st.border}` }}
                       >
                         {badgeLabel}
                       </span>
@@ -3129,14 +3092,11 @@ function DashboardRepartidor({ session, onSignOut, onGoToProfile, registeredRol,
 // ════════════════════════════════════════════════════
 // COMPONENTE PRINCIPAL
 // ════════════════════════════════════════════════════
-export default function Dashboard({ session, rol, registeredRol, onSwitchMode, onSignOut, onGoToProfile, onGoToTracking, onGoToPedidos, onGoToHistorial, onGoToPago, onGoToTiendas }) {
+export default function Dashboard({ session, rol, onSignOut, onGoToProfile, onGoToTracking, onGoToPedidos, onGoToHistorial, onGoToPago, onGoToTiendas }) {
   if (rol === 'comercio') {
     return (
       <DashboardComercio
         session={session}
-        currentRol={rol}
-        registeredRol={registeredRol}
-        onSwitchMode={onSwitchMode}
         onSignOut={onSignOut}
         onGoToProfile={onGoToProfile}
       />
@@ -3146,9 +3106,6 @@ export default function Dashboard({ session, rol, registeredRol, onSwitchMode, o
     return (
       <DashboardRepartidor
         session={session}
-        currentRol={rol}
-        registeredRol={registeredRol}
-        onSwitchMode={onSwitchMode}
         onSignOut={onSignOut}
         onGoToProfile={onGoToProfile}
         onGoToPedidos={onGoToPedidos}
@@ -3159,9 +3116,6 @@ export default function Dashboard({ session, rol, registeredRol, onSwitchMode, o
   return (
     <DashboardCliente
       session={session}
-      currentRol={rol}
-      registeredRol={registeredRol}
-      onSwitchMode={onSwitchMode}
       onSignOut={onSignOut}
       onGoToProfile={onGoToProfile}
       onGoToTracking={onGoToTracking}

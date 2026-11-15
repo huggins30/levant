@@ -1,22 +1,333 @@
 @import "tailwindcss";
 
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  /* Fondo general y superficies (Shopify Polaris / Wise) */
+  --bg-app: #F6F6F7;
+  --surface: #FFFFFF;
+  --surface-border: #E1E3E5;
+  --surface-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+  --surface-hover: #F1F2F4;
+  --divider: #EBEBEB;
 
-body {
-  background: #0f1117;
-  color: #e2e8f0;
-  font-family: 'Inter', sans-serif;
+  /* Tipografía y textos de alto contraste */
+  --text-primary: #1A1A1A;
+  --text-secondary: #616161;
+  --text-muted: #8C9196;
+
+  /* Botones globales */
+  --btn-primary-bg: #1A1A1A;
+  --btn-primary-hover: #303030;
+  --btn-primary-text: #FFFFFF;
+  --btn-secondary-bg: #FFFFFF;
+  --btn-secondary-border: #C9CCCF;
+  --btn-secondary-hover: #F6F6F7;
+  --btn-secondary-text: #1A1A1A;
+
+  /* Estados planos de alto contraste con fondos pastel suaves */
+  --status-success-bg: #E3F1DF;
+  --status-success-text: #108043;
+  --status-success-border: #C3E3B9;
+
+  --status-warning-bg: #FFF5EA;
+  --status-warning-text: #9E6C00;
+  --status-warning-border: #FFE0B2;
+
+  --status-danger-bg: #FBEAE5;
+  --status-danger-text: #D72C0D;
+  --status-danger-border: #F7C5B8;
+
+  --status-info-bg: #EAF4FD;
+  --status-info-text: #1351B4;
+  --status-info-border: #C3DCF7;
+
+  --status-neutral-bg: #F1F2F4;
+  --status-neutral-text: #616161;
+  --status-neutral-border: #E1E3E5;
 }
 
-::-webkit-scrollbar       { width: 6px; height: 6px; }
-::-webkit-scrollbar-track { background: #1a1d27; }
-::-webkit-scrollbar-thumb { background: #374151; border-radius: 4px; }
-::-webkit-scrollbar-thumb:hover { background: #4b5563; }
+/* ══════════════════════════════════════════════════════════════════════
+   MODO OSCURO — Shopify Polaris / Wise Dark System
+   Paleta refinada, accesible y de alto contraste
+   ══════════════════════════════════════════════════════════════════════ */
+[data-theme="dark"],
+.dark {
+  /* Fondo general y superficies oscuras */
+  --bg-app: #0F1115;
+  --surface: #181B20;
+  --surface-border: #2B303A;
+  --surface-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+  --surface-hover: #22262E;
+  --divider: #262B34;
+
+  /* Tipografía y textos de alto contraste */
+  --text-primary: #F3F4F6;
+  --text-secondary: #9CA3AF;
+  --text-muted: #6B7280;
+
+  /* Botones globales */
+  --btn-primary-bg: #F3F4F6;
+  --btn-primary-hover: #E5E7EB;
+  --btn-primary-text: #111827;
+  --btn-secondary-bg: #1F242C;
+  --btn-secondary-border: #374151;
+  --btn-secondary-hover: #282E38;
+  --btn-secondary-text: #F3F4F6;
+
+  /* Estados oscuros de alta legibilidad */
+  --status-success-bg: rgba(16, 128, 67, 0.22);
+  --status-success-text: #34D399;
+  --status-success-border: rgba(52, 211, 153, 0.35);
+
+  --status-warning-bg: rgba(245, 158, 11, 0.22);
+  --status-warning-text: #FBBF24;
+  --status-warning-border: rgba(251, 191, 36, 0.35);
+
+  --status-danger-bg: rgba(215, 44, 13, 0.22);
+  --status-danger-text: #F87171;
+  --status-danger-border: rgba(248, 113, 113, 0.35);
+
+  --status-info-bg: rgba(19, 81, 180, 0.22);
+  --status-info-text: #60A5FA;
+  --status-info-border: rgba(96, 165, 250, 0.35);
+
+  --status-neutral-bg: rgba(156, 163, 175, 0.15);
+  --status-neutral-text: #D1D5DB;
+  --status-neutral-border: #374151;
+
+  /* Mapeo de tokens de módulos para consistencia global */
+  --db-bg: #0F1115;
+  --db-surface: #181B20;
+  --db-card: #181B20;
+  --db-border: #2B303A;
+  --db-divider: #262B34;
+  --db-text: #F3F4F6;
+  --db-muted: #9CA3AF;
+
+  --cp-bg: #0F1115;
+  --cp-surface: #181B20;
+  --cp-border: #2B303A;
+  --cp-accent: #F3F4F6;
+  --cp-text: #F3F4F6;
+  --cp-muted: #9CA3AF;
+
+  --rp-bg: #0F1115;
+  --rp-surface: #181B20;
+  --rp-border: #2B303A;
+  --rp-input-border: #374151;
+  --rp-text: #F3F4F6;
+  --rp-muted: #9CA3AF;
+  --rp-divider: #262B34;
+  --rp-accent: #F3F4F6;
+  --rp-accent-h: #E5E7EB;
+
+  --tc-bg: #0F1115;
+  --tc-surface: #181B20;
+  --tc-border: #2B303A;
+  --tc-input-border: #374151;
+  --tc-divider: #262B34;
+  --tc-text: #F3F4F6;
+  --tc-muted: #9CA3AF;
+
+  --hc-bg: #0F1115;
+  --hc-surface: #181B20;
+  --hc-card: #181B20;
+  --hc-border: #2B303A;
+  --hc-accent: #F3F4F6;
+  --hc-text: #F3F4F6;
+  --hc-muted: #9CA3AF;
+
+  --adm-bg: #0F1115;
+  --adm-surface: #181B20;
+  --adm-border: #2B303A;
+  --adm-divider: #262B34;
+  --adm-text: #F3F4F6;
+  --adm-muted: #9CA3AF;
+  --adm-input-border: #374151;
+
+  --neu-bg-base: #0F1115;
+  --neu-surface: #181B20;
+  --neu-border: #2B303A;
+  --neu-divider: #262B34;
+  --neu-text: #F3F4F6;
+  --neu-muted: #9CA3AF;
+
+  --cf-bg: #0F1115;
+  --cf-surface: #181B20;
+  --cf-border: #374151;
+  --cf-accent: #F3F4F6;
+  --cf-text: #F3F4F6;
+  --cf-muted: #9CA3AF;
+}
+
+[data-theme="dark"] ::-webkit-scrollbar-track {
+  background: #0F1115;
+}
+[data-theme="dark"] ::-webkit-scrollbar-thumb {
+  background: #374151;
+}
+[data-theme="dark"] ::-webkit-scrollbar-thumb:hover {
+  background: #4B5563;
+}
+
+[data-theme="dark"] input,
+[data-theme="dark"] select,
+[data-theme="dark"] textarea {
+  background: #1F242C;
+  color: #F3F4F6;
+  border-color: #374151;
+}
+
+[data-theme="dark"] input:focus,
+[data-theme="dark"] select:focus,
+[data-theme="dark"] textarea:focus {
+  border-color: #6366F1;
+  box-shadow: 0 0 0 1px #6366F1;
+}
+
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background-color: var(--bg-app);
+  color: var(--text-primary);
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Regla de Oro: tabular-nums en cifras, precios, distancias y contadores */
+.tabular-nums,
+[data-tabular-nums] {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Scrollbars limpios estilo Polaris */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #F6F6F7;
+}
+::-webkit-scrollbar-thumb {
+  background: #C9CCCF;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #8C9196;
+}
+
+/* Inputs, selects y textareas base */
+input, select, textarea {
+  background: #FFFFFF;
+  color: #1A1A1A;
+  border: 1px solid #C9CCCF;
+  border-radius: 6px;
+  font-family: inherit;
+}
+input:focus, select:focus, textarea:focus {
+  outline: none;
+  border-color: #1A1A1A;
+  box-shadow: 0 0 0 1px #1A1A1A;
+}
 
 input:-webkit-autofill,
 input:-webkit-autofill:hover,
 input:-webkit-autofill:focus {
-  -webkit-box-shadow: 0 0 0 1000px #0f1117 inset;
-  -webkit-text-fill-color: #e2e8f0;
-  caret-color: #e2e8f0;
+  -webkit-box-shadow: 0 0 0 1000px #FFFFFF inset;
+  -webkit-text-fill-color: #1A1A1A;
+  caret-color: #1A1A1A;
+}
+
+/* Clases base reutilizables de botones */
+.btn-primary {
+  background-color: var(--btn-primary-bg);
+  color: var(--btn-primary-text);
+  border: 1px solid transparent;
+  border-radius: 6px;
+  font-weight: 500;
+  font-size: 0.875rem;
+  padding: 0.5rem 1rem;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  text-decoration: none;
+}
+.btn-primary:hover:not(:disabled) {
+  background-color: var(--btn-primary-hover);
+}
+.btn-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-secondary {
+  background-color: var(--btn-secondary-bg);
+  color: var(--btn-secondary-text);
+  border: 1px solid var(--btn-secondary-border);
+  border-radius: 6px;
+  font-weight: 500;
+  font-size: 0.875rem;
+  padding: 0.5rem 1rem;
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  text-decoration: none;
+}
+.btn-secondary:hover:not(:disabled) {
+  background-color: var(--btn-secondary-hover);
+  border-color: #BABEC3;
+}
+.btn-secondary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Píldoras de estado planas de alto contraste (Pastel Shopify) */
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1.25;
+  letter-spacing: 0.01em;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+.status-pill--success {
+  background-color: var(--status-success-bg);
+  color: var(--status-success-text);
+  border-color: var(--status-success-border);
+}
+.status-pill--warning {
+  background-color: var(--status-warning-bg);
+  color: var(--status-warning-text);
+  border-color: var(--status-warning-border);
+}
+.status-pill--danger {
+  background-color: var(--status-danger-bg);
+  color: var(--status-danger-text);
+  border-color: var(--status-danger-border);
+}
+.status-pill--info {
+  background-color: var(--status-info-bg);
+  color: var(--status-info-text);
+  border-color: var(--status-info-border);
+}
+.status-pill--neutral {
+  background-color: var(--status-neutral-bg);
+  color: var(--status-neutral-text);
+  border-color: var(--status-neutral-border);
 }

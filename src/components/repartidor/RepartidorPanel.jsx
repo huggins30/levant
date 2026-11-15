@@ -13,12 +13,12 @@ const VEHICULOS = ['moto', 'carro'];
 const VEHICULO_ICON = { moto: '🏍️', carro: '🚗', bicicleta: '🚲', a_pie: '🚶' };
 
 const ESTADO_BADGE = {
-  pendiente:      { label: 'Pendiente',      color: '#f59e0b' },
-  confirmado:     { label: 'Confirmado',     color: '#6c63ff' },
-  en_preparacion: { label: 'En preparación', color: '#3b82f6' },
-  en_camino:      { label: 'En camino',      color: '#8b5cf6' },
-  entregado:      { label: 'Entregado',      color: '#10b981' },
-  cancelado:      { label: 'Cancelado',      color: '#f87171' },
+  pendiente:      { label: 'Pendiente',      bg: '#FFF5EA', color: '#9E6C00', border: '#FFE0B2' },
+  confirmado:     { label: 'Confirmado',     bg: '#EAF4FD', color: '#1351B4', border: '#C3DCF7' },
+  en_preparacion: { label: 'En preparación', bg: '#F1F2F4', color: '#4A4A4A', border: '#E1E3E5' },
+  en_camino:      { label: 'En camino',      bg: '#EAF4FD', color: '#1351B4', border: '#C3DCF7' },
+  entregado:      { label: 'Entregado',      bg: '#E3F1DF', color: '#108043', border: '#C3E3B9' },
+  cancelado:      { label: 'Cancelado',      bg: '#FBEAE5', color: '#D72C0D', border: '#F7C5B8' },
 };
 
 const CEDULA_REGEX = /^(V|E)-[0-9]{6,8}$/;
@@ -444,7 +444,7 @@ export default function RepartidorPanel({ session, initialTab = 'pedidos' }) {
           <span className="rp-hero-icon">{VEHICULO_ICON[form.vehiculo] ?? '🛵'}</span>
           <div>
             <h2 className="rp-hero-title">Panel del Repartidor</h2>
-            <p className="rp-hero-sub">{form.cedula || 'Sin cédula registrada'}</p>
+            <p className="rp-hero-sub tabular-nums">{form.cedula || 'Sin cédula registrada'}</p>
           </div>
         </div>
 
@@ -646,8 +646,8 @@ export default function RepartidorPanel({ session, initialTab = 'pedidos' }) {
                     {filtrados.map(ped => {
                       const clienteConfirmo = Boolean(ped.confirmacion_cliente === true || ped.valoracion);
                       const badge = (ped.estado === 'entregado' && !clienteConfirmo)
-                        ? { label: 'pendiente confirmacion de entrega por cliente', color: '#f59e0b' }
-                        : (ESTADO_BADGE[ped.estado] ?? { label: ped.estado, color: '#64748b' });
+                        ? { label: 'Pendiente confirmación', bg: '#FFF5EA', color: '#9E6C00', border: '#FFE0B2' }
+                        : (ESTADO_BADGE[ped.estado] ?? { label: ped.estado, bg: '#F1F2F4', color: '#4A4A4A', border: '#E1E3E5' });
                       const isAsignado = ped.estado === 'pendiente' || ped.estado === 'confirmado' || ped.estado === 'en_preparacion';
                       const isEnCamino = ped.estado === 'en_camino';
                       const isEntregado = ped.estado === 'entregado';
@@ -673,14 +673,14 @@ export default function RepartidorPanel({ session, initialTab = 'pedidos' }) {
                           {/* Top */}
                           <div className="rp-card-header">
                             <div className="rp-card-id-wrap">
-                              <span className="rp-card-id">#{ped.id.slice(0, 8)}</span>
-                              <span className="rp-card-date">
+                              <span className="rp-card-id tabular-nums">#{ped.id.slice(0, 8)}</span>
+                              <span className="rp-card-date tabular-nums">
                                 {new Date(ped.created_at).toLocaleDateString('es-VE', {
                                   day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit'
                                 })}
                               </span>
                             </div>
-                            <span className="rp-badge" style={{ '--bc': badge.color }}>
+                            <span className="rp-badge" style={{ background: badge.bg, color: badge.color, border: `1px solid ${badge.border}` }}>
                               {badge.label}
                             </span>
                           </div>
@@ -735,7 +735,7 @@ export default function RepartidorPanel({ session, initialTab = 'pedidos' }) {
                           <div className="rp-card-footer">
                             <div className="rp-total-wrap">
                               <span className="rp-total-label">Total del pedido</span>
-                              <span className="rp-total-amount">${ped.total_usd?.toFixed(2)}</span>
+                              <span className="rp-total-amount tabular-nums">${ped.total_usd?.toFixed(2)}</span>
                             </div>
 
                             <div className="rp-actions-wrap">
@@ -857,22 +857,22 @@ export default function RepartidorPanel({ session, initialTab = 'pedidos' }) {
               <div className="rp-kpis">
                 <div className="rp-kpi rp-kpi--green">
                   <span>✅</span>
-                  <p className="rp-kpi-val">{entregadas}</p>
+                  <p className="rp-kpi-val tabular-nums">{entregadas}</p>
                   <p className="rp-kpi-lbl">Entregados</p>
                 </div>
-                <div className="rp-kpi rp-kpi--purple">
+                <div className="rp-kpi rp-kpi--blue">
                   <span>🛵</span>
-                  <p className="rp-kpi-val">{enCamino}</p>
+                  <p className="rp-kpi-val tabular-nums">{enCamino}</p>
                   <p className="rp-kpi-lbl">En camino</p>
                 </div>
-                <div className="rp-kpi rp-kpi--blue">
+                <div className="rp-kpi rp-kpi--green2">
                   <span>💵</span>
-                  <p className="rp-kpi-val">${ingresos.toFixed(2)}</p>
+                  <p className="rp-kpi-val tabular-nums">${ingresos.toFixed(2)}</p>
                   <p className="rp-kpi-lbl">Ingresos USD</p>
                 </div>
-                <div className="rp-kpi rp-kpi--yellow">
+                <div className="rp-kpi rp-kpi--amber">
                   <span>⭐</span>
-                  <p className="rp-kpi-val">
+                  <p className="rp-kpi-val tabular-nums">
                     {valoracion?.valoracion_promedio != null
                       ? valoracion.valoracion_promedio
                       : '—'}
@@ -908,23 +908,23 @@ export default function RepartidorPanel({ session, initialTab = 'pedidos' }) {
                     </thead>
                     <tbody>
                       {entregas.map(e => {
-                        const badge = ESTADO_BADGE[e.estado] ?? { label: e.estado, color: '#64748b' };
+                        const badge = ESTADO_BADGE[e.estado] ?? { label: e.estado, bg: '#F1F2F4', color: '#4A4A4A', border: '#E1E3E5' };
                         return (
                           <tr key={e.id}>
-                            <td className="rp-td-date">
+                            <td className="rp-td-date tabular-nums">
                               {new Date(e.created_at).toLocaleDateString('es-VE', { day:'2-digit', month:'short' })}
                             </td>
                             <td className="rp-td-comercio">{e.comercios_datos?.nombre_comercial ?? '—'}</td>
                             <td className="rp-td-cliente">{e.profiles?.nombre_completo ?? '—'}</td>
                             <td className="rp-td-c">
-                              <span className="rp-badge" style={{ '--bc': badge.color }}>{badge.label}</span>
+                              <span className="rp-badge" style={{ background: badge.bg, color: badge.color, border: `1px solid ${badge.border}` }}>{badge.label}</span>
                             </td>
                             <td className="rp-td-c">
                               {e.valoracion != null
                                 ? <span className="rp-star-inline">{'★'.repeat(e.valoracion)}<span className="rp-star-empty">{'★'.repeat(5 - e.valoracion)}</span></span>
                                 : <span className="rp-no-val">—</span>}
                             </td>
-                            <td className="rp-td-r rp-price">${e.total_usd?.toFixed(2)}</td>
+                            <td className="rp-td-r rp-price tabular-nums">${e.total_usd?.toFixed(2)}</td>
                           </tr>
                         );
                       })}

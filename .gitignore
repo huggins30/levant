@@ -31,3 +31,5 @@ server/.env
 server/.env.*
 !server/.env.example
 base de datos/clavesupabase.txt
+# database / sql files
+*.sql

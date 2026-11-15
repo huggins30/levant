@@ -22,15 +22,24 @@ SECURITY DEFINER
 SET search_path = public, auth
 AS $$
 DECLARE
+  v_raw_rol TEXT;
   v_rol user_role;
   v_nombre TEXT;
   v_activado BOOLEAN;
 BEGIN
   v_nombre := COALESCE(NEW.raw_user_meta_data->>'nombre_completo', 'Sin nombre');
-  v_rol    := COALESCE((NEW.raw_user_meta_data->>'rol')::user_role, 'cliente');
+  v_raw_rol := LOWER(TRIM(COALESCE(NEW.raw_user_meta_data->>'rol', 'cliente')));
   
-  -- Los clientes y administradores tienen correo_activado = TRUE; comercios y repartidores requieren activación del admin
-  v_activado := (v_rol IN ('cliente', 'admin'));
+  -- SEGURIDAD: Solo se permiten roles de auto-registro ('cliente', 'comercio', 'repartidor').
+  -- El rol 'admin' NUNCA puede ser auto-asignado; si se intenta, se degrada a 'cliente'.
+  IF v_raw_rol IN ('comercio', 'repartidor') THEN
+    v_rol := v_raw_rol::user_role;
+  ELSE
+    v_rol := 'cliente'::user_role;
+  END IF;
+
+  -- Solo los clientes tienen correo_activado = TRUE de inicio; comercios y repartidores requieren activación del admin
+  v_activado := (v_rol = 'cliente');
 
   INSERT INTO public.profiles (id, email, nombre_completo, rol, correo_activado)
   VALUES (
@@ -42,8 +51,8 @@ BEGIN
   )
   ON CONFLICT (id) DO UPDATE
     SET email           = EXCLUDED.email,
-        nombre_completo = EXCLUDED.nombre_completo,
-        rol             = EXCLUDED.rol;
+        nombre_completo = EXCLUDED.nombre_completo;
+        -- NOTA: Se excluye 'rol' y 'correo_activado' para prevenir sobreescrituras no autorizadas
 
   -- Si es comercio, crear su registro base en comercios_datos para que aparezca de inmediato en la administración
   IF v_rol = 'comercio' THEN
@@ -68,6 +77,50 @@ DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
 CREATE TRIGGER on_auth_user_created
   AFTER INSERT ON auth.users
   FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
+
+-- 3.1. Trigger de Seguridad: Proteger columnas críticas ('rol' y 'correo_activado') en public.profiles
+CREATE OR REPLACE FUNCTION public.proteger_rol_perfil()
+RETURNS TRIGGER 
+LANGUAGE plpgsql 
+SECURITY DEFINER
+SET search_path = public, auth
+AS $$
+DECLARE
+  v_is_service_role BOOLEAN;
+  v_is_admin BOOLEAN;
+BEGIN
+  -- Verificar si la operación viene del service_role o procesos internos de Postgres
+  v_is_service_role := (
+    current_user IN ('postgres', 'supabase_admin') OR
+    COALESCE(auth.jwt()->>'role', '') = 'service_role' OR
+    auth.uid() IS NULL
+  );
+
+  -- Verificar si el usuario autenticado tiene rol de admin legítimo
+  v_is_admin := v_is_service_role OR public.is_admin();
+
+  -- Impedir modificación del rol por usuarios no autorizados
+  IF OLD.rol IS DISTINCT FROM NEW.rol THEN
+    IF NOT v_is_admin THEN
+      RAISE EXCEPTION 'Acceso denegado: solo un administrador puede modificar el rol de un usuario.';
+    END IF;
+  END IF;
+
+  -- Impedir modificación de correo_activado por usuarios no autorizados
+  IF OLD.correo_activado IS DISTINCT FROM NEW.correo_activado THEN
+    IF NOT v_is_admin THEN
+      RAISE EXCEPTION 'Acceso denegado: solo un administrador puede activar o desactivar cuentas.';
+    END IF;
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_proteger_rol_perfil ON public.profiles;
+CREATE TRIGGER trg_proteger_rol_perfil
+  BEFORE UPDATE ON public.profiles
+  FOR EACH ROW EXECUTE FUNCTION public.proteger_rol_perfil();
 
 -- 4. RPC: Activar o desactivar correo de un usuario (Admin)
 CREATE OR REPLACE FUNCTION public.admin_activar_correo_usuario(

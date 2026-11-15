@@ -4,11 +4,14 @@ import './index.css'
 import './styles/darkMode.css'
 import App from './App.jsx'
 import { ThemeProvider } from './context/ThemeContext'
+import { ErrorBoundary } from './components/common/ErrorBoundary'
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>
-    <ThemeProvider>
-      <App />
-    </ThemeProvider>
+    <ErrorBoundary>
+      <ThemeProvider>
+        <App />
+      </ThemeProvider>
+    </ErrorBoundary>
   </StrictMode>,
 )

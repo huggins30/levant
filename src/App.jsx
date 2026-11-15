@@ -154,17 +154,37 @@ export default function App() {
 
   // ── Auth listener ───────────────────────────────────────────────
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => {
-      setSession(data.session);
-      setLoadingAuth(false);
-    });
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_e, s) => {
+    let isMounted = true;
+    supabase.auth
+      .getSession()
+      .then(({ data }) => {
+        if (!isMounted) return;
+        setSession(data?.session ?? null);
+        setLoadingAuth(false);
+      })
+      .catch((err) => {
+        console.warn('Error recuperando sesión inicial:', err);
+        if (isMounted) setLoadingAuth(false);
+      });
+
+    // Fallback de seguridad: si tras 4 segundos no hay respuesta de auth, liberar loading
+    const timer = setTimeout(() => {
+      if (isMounted) setLoadingAuth(false);
+    }, 4000);
+
+    const { data: authListener } = supabase.auth.onAuthStateChange((_e, s) => {
+      if (!isMounted) return;
       setSession(s);
       if (!s) {
         setPerfil(null);
       }
     });
-    return () => subscription.unsubscribe();
+
+    return () => {
+      isMounted = false;
+      clearTimeout(timer);
+      authListener?.subscription?.unsubscribe();
+    };
   }, []);
 
   // ── Cargar rol del usuario ──────────────────────────────────────

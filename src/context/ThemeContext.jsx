@@ -9,30 +9,40 @@ const ThemeContext = createContext({
 
 export function ThemeProvider({ children }) {
   const [theme, setThemeState] = useState(() => {
-    // 1. Revisar persistencia en localStorage
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('levant_theme');
-      if (saved === 'dark' || saved === 'light') return saved;
-      // 2. Revisar preferencia nativa del sistema operativo
-      if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
-        return 'dark';
+    try {
+      if (typeof window !== 'undefined') {
+        const saved = window.localStorage ? window.localStorage.getItem('levant_theme') : null;
+        if (saved === 'dark' || saved === 'light') return saved;
+        if (window.matchMedia && typeof window.matchMedia === 'function') {
+          const mq = window.matchMedia('(prefers-color-scheme: dark)');
+          if (mq && mq.matches) return 'dark';
+        }
       }
+    } catch (e) {
+      console.warn('[ThemeContext] Error al leer tema inicial:', e);
     }
     return 'light';
   });
 
   const applyTheme = (newTheme) => {
-    if (typeof document === 'undefined') return;
-    const root = document.documentElement;
-    root.setAttribute('data-theme', newTheme);
-    if (newTheme === 'dark') {
-      root.classList.add('dark');
-      root.style.colorScheme = 'dark';
-    } else {
-      root.classList.remove('dark');
-      root.style.colorScheme = 'light';
+    try {
+      if (typeof document === 'undefined') return;
+      const root = document.documentElement;
+      if (!root) return;
+      root.setAttribute('data-theme', newTheme);
+      if (newTheme === 'dark') {
+        root.classList.add('dark');
+        if (root.style) root.style.colorScheme = 'dark';
+      } else {
+        root.classList.remove('dark');
+        if (root.style) root.style.colorScheme = 'light';
+      }
+      if (typeof window !== 'undefined' && window.localStorage) {
+        window.localStorage.setItem('levant_theme', newTheme);
+      }
+    } catch (e) {
+      console.warn('[ThemeContext] Error al aplicar tema:', e);
     }
-    localStorage.setItem('levant_theme', newTheme);
   };
 
   useEffect(() => {
@@ -41,16 +51,31 @@ export function ThemeProvider({ children }) {
 
   // Escuchar cambios automáticos del sistema si no hay preferencia manual
   useEffect(() => {
-    if (typeof window === 'undefined') return;
-    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
-    const handleChange = (e) => {
-      const saved = localStorage.getItem('levant_theme');
-      if (!saved) {
-        setThemeState(e.matches ? 'dark' : 'light');
+    try {
+      if (typeof window === 'undefined' || !window.matchMedia || typeof window.matchMedia !== 'function') return;
+      const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+      if (!mediaQuery) return;
+
+      const handleChange = (e) => {
+        try {
+          const saved = window.localStorage ? window.localStorage.getItem('levant_theme') : null;
+          if (!saved) {
+            setThemeState(e.matches ? 'dark' : 'light');
+          }
+        } catch (_) {}
+      };
+
+      if (typeof mediaQuery.addEventListener === 'function') {
+        mediaQuery.addEventListener('change', handleChange);
+        return () => mediaQuery.removeEventListener('change', handleChange);
+      } else if (typeof mediaQuery.addListener === 'function') {
+        // Compatibilidad con Android WebViews antiguos
+        mediaQuery.addListener(handleChange);
+        return () => mediaQuery.removeListener(handleChange);
       }
-    };
-    mediaQuery.addEventListener('change', handleChange);
-    return () => mediaQuery.removeEventListener('change', handleChange);
+    } catch (e) {
+      console.warn('[ThemeContext] Error configurando listener de tema:', e);
+    }
   }, []);
 
   const toggleTheme = () => {
@@ -73,7 +98,12 @@ export function ThemeProvider({ children }) {
 export function useTheme() {
   const context = useContext(ThemeContext);
   if (!context) {
-    throw new Error('useTheme debe ser utilizado dentro de un ThemeProvider');
+    return {
+      theme: 'light',
+      isDark: false,
+      toggleTheme: () => {},
+      setTheme: () => {},
+    };
   }
   return context;
 }

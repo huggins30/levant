@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
-import ThemeToggle from '../common/ThemeToggle';
 import './Login.css';
 
 export default function Login() {
@@ -120,9 +119,6 @@ export default function Login() {
 
   return (
     <div className="auth-wrapper">
-      <div className="auth-top-actions">
-        <ThemeToggle showLabel={true} size="sm" />
-      </div>
       <div className="auth-card">
         <div className="auth-header">
           <span className="auth-logo">

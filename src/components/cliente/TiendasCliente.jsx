@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../../lib/supabase';
-import { autoAsignarPedido, buscarMejorRepartidorDisponible } from '../../lib/asignacionPedidos';
+import { autoAsignarPedido, obtenerRepartidoresValorados } from '../../lib/asignacionPedidos';
 import './TiendasCliente.css';
 
 const CAT_ICONS = {
@@ -46,6 +46,10 @@ export default function TiendasCliente({ session, onGoToPago }) {
   const [ordering, setOrdering]         = useState(false);
   const [orderResult, setOrderResult]   = useState(null); // 'ok' | error string
   const [createdPedidoId, setCreatedPedidoId] = useState(null);
+  const [repartidores, setRepartidores] = useState([]);
+  const [loadingReps, setLoadingReps]   = useState(false);
+  const [selectedRepId, setSelectedRepId] = useState('');
+  const [assignedRepName, setAssignedRepName] = useState('');
 
   // ── Datos de Pago (OBLIGATORIO para generar pedido) ──
   const [pagoMetodo, setPagoMetodo]           = useState('pago_movil');
@@ -74,6 +78,7 @@ export default function TiendasCliente({ session, onGoToPago }) {
     setPagoNotas('');
     setPagoFile(null);
     setPagoPreview(null);
+    setSelectedRepId('');
   };
 
   const handlePagoFileChange = (e) => {
@@ -175,7 +180,7 @@ export default function TiendasCliente({ session, onGoToPago }) {
   const cartTotal = cartItems.reduce((sum, p) => sum + (p.precio_usd * (cart[p.id] || 0)), 0);
   const cartCount = Object.values(cart).reduce((s, q) => s + q, 0);
 
-  // ── Cargar dirección guardada del cliente ──
+  // ── Cargar dirección guardada y repartidores valorados ──
   useEffect(() => {
     if (!showCheckout || !session?.user) return;
     supabase
@@ -187,6 +192,25 @@ export default function TiendasCliente({ session, onGoToPago }) {
         if (data?.direccion) setDireccion(data.direccion);
         if (data?.punto_referencia) setReferencia(data.punto_referencia);
       });
+
+    const pesoTotal = cartItems.reduce((sum, p) => {
+      const qty = Number(cart[p.id]) || 1;
+      const pUnit = Number(p.peso_kg) || 1.0;
+      return sum + (qty * pUnit);
+    }, 0) || 1.0;
+
+    setLoadingReps(true);
+    obtenerRepartidoresValorados(pesoTotal)
+      .then((list) => {
+        setRepartidores(list);
+        if (list.length > 0) {
+          const best = list.find(r => r.disponible && r.apto_peso) || list.find(r => r.disponible) || list[0];
+          setSelectedRepId(best.id);
+        } else {
+          setSelectedRepId('');
+        }
+      })
+      .finally(() => setLoadingReps(false));
   }, [showCheckout, session]);
 
   // ── Ejecutar compra con PAGO OBLIGATORIO Y CARGA DE COMPROBANTE ──
@@ -196,6 +220,11 @@ export default function TiendasCliente({ session, onGoToPago }) {
       return;
     }
     if (cartItems.length === 0) return;
+
+    if (repartidores.length > 0 && !selectedRepId) {
+      setOrderResult('🛵 Debes seleccionar un repartidor para tu pedido.');
+      return;
+    }
 
     // VALIDACIÓN ESTRICTA DEL PAGO
     if (!pagoReferencia.trim()) {
@@ -340,7 +369,12 @@ export default function TiendasCliente({ session, onGoToPago }) {
       }, 0);
       pesoTotal = Number(pesoTotal.toFixed(2)) || 1.0;
 
-      await autoAsignarPedido(pedido.id, pesoTotal);
+      const asignRes = await autoAsignarPedido(pedido.id, pesoTotal, selectedRepId || null);
+      if (asignRes?.repartidor?.profiles?.nombre_completo) {
+        setAssignedRepName(asignRes.repartidor.profiles.nombre_completo);
+      } else {
+        setAssignedRepName('');
+      }
 
       setCreatedPedidoId(pedido.id);
       setOrderResult('ok');
@@ -592,6 +626,78 @@ export default function TiendasCliente({ session, onGoToPago }) {
                     />
                   </div>
 
+                  {/* ── ELECCIÓN DE REPARTIDOR POR VALORACIONES ── */}
+                  <div className="tc-rep-section">
+                    <div className="tc-rep-header">
+                      <label className="tc-rep-title">🛵 Elige tu repartidor</label>
+                      <span className="tc-rep-sub">Ordenados por mejor valoración ★</span>
+                    </div>
+
+                    {loadingReps ? (
+                      <div className="tc-rep-loading">
+                        <span className="tc-spinner" /> Cargando repartidores disponibles…
+                      </div>
+                    ) : repartidores.length === 0 ? (
+                      <div className="tc-rep-empty">
+                        No hay repartidores activos en este momento. El sistema asignará uno automáticamente al confirmarse.
+                      </div>
+                    ) : (
+                      <div className="tc-rep-list">
+                        {repartidores.map(rep => {
+                          const isSelected = selectedRepId === rep.id;
+                          const hasRating = Number(rep.total_valoraciones) > 0;
+                          const vIcon = (rep.vehiculo || '').toLowerCase().includes('carro') ? '🚗' : '🏍️';
+                          return (
+                            <button
+                              key={rep.id}
+                              type="button"
+                              className={`tc-rep-card ${isSelected ? 'tc-rep-card--selected' : ''} ${!rep.disponible ? 'tc-rep-card--busy' : ''}`}
+                              onClick={() => setSelectedRepId(rep.id)}
+                            >
+                              <div className="tc-rep-card-top">
+                                <div className="tc-rep-name-wrap">
+                                  <span className="tc-rep-radio">{isSelected ? '●' : '○'}</span>
+                                  <strong className="tc-rep-name">{rep.nombre_completo}</strong>
+                                </div>
+                                <span className={`tc-rep-status ${rep.disponible ? 'tc-rep-status--ok' : 'tc-rep-status--busy'}`}>
+                                  {rep.disponible ? 'Disponible' : 'En entrega'}
+                                </span>
+                              </div>
+
+                              <div className="tc-rep-card-meta">
+                                <span className="tc-rep-rating">
+                                  {hasRating ? (
+                                    <>★ <strong>{Number(rep.promedio_valoracion).toFixed(1)}</strong> ({rep.total_valoraciones})</>
+                                  ) : (
+                                    <>☆ Sin valoraciones aún</>
+                                  )}
+                                </span>
+                                <span className="tc-rep-dot">·</span>
+                                <span className="tc-rep-deliveries">
+                                  {rep.entregas_completadas || 0} entrega{rep.entregas_completadas === 1 ? '' : 's'}
+                                </span>
+                                <span className="tc-rep-dot">·</span>
+                                <span className={`tc-rep-active-count ${(rep.repartos_activos || 0) > 0 ? 'tc-rep-active-count--busy' : ''}`}>
+                                  📦 {rep.repartos_activos || 0} activo{(rep.repartos_activos || 0) === 1 ? '' : 's'}
+                                </span>
+                                <span className="tc-rep-dot">·</span>
+                                <span className="tc-rep-vehicle">
+                                  {vIcon} {rep.vehiculo_nombre} ({rep.capacidad_peso_kg} kg)
+                                </span>
+                              </div>
+
+                              {rep.apto_peso === false && (
+                                <div className="tc-rep-weight-warn">
+                                  ⚠️ Capacidad ajustada para el peso de este pedido
+                                </div>
+                              )}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+
                   {/* ── SECCIÓN DE PAGO Y COMPROBANTE OBLIGATORIO ── */}
                   <div className="tc-payment-box">
                     <div className="tc-payment-box-header">
@@ -741,7 +847,9 @@ export default function TiendasCliente({ session, onGoToPago }) {
                   {orderResult === 'ok' && (
                     <div className="tc-alert-ok">
                       🎉 <strong>¡Pedido y pago registrados con éxito!</strong><br />
-                      Tu comprobante fue cargado y el sistema ya procedió a la asignación de tu repartidor.
+                      {assignedRepName
+                        ? <>Tu comprobante fue cargado y se asignó a <strong>{assignedRepName}</strong> como tu repartidor.</>
+                        : <>Tu comprobante fue cargado y el sistema ya procedió a la asignación de tu repartidor.</>}
                     </div>
                   )}
                   {orderResult && orderResult !== 'ok' && (

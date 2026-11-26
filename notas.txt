@@ -1,0 +1,10 @@
+pedido geolocalizar direcion
+datos de pago movil, como hacer para que lea los datos de la imagen
+revisar asigaqncion de pedidos Vehiculos, motos y furgoneta
+Mejorar modo oscuro, el logo adaptar modo oscuro, modo oscuro
+
+
+Mejorar la notificacion de entrega
+mejorar la entrega de pedidos
+dibble aparaytado, para enviar coas a otras personas, quien recibe, contactos
+por las valoraciones, que se escoja el repartidor, pero que lo escoja el cliente, y de acuerdo al numero de repartos que tenga en ese momento

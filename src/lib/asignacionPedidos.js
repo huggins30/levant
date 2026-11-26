@@ -20,7 +20,70 @@ export function getCapacidadRepartidor(rep) {
  * Obtiene el nombre del vehículo
  */
 export function getVehiculoNombreRepartidor(rep) {
-  return rep?.tipos_vehiculo?.nombre || (rep?.vehiculo ? rep.vehiculo.toUpperCase() : 'MOTOCICLETA');
+  return rep?.tipos_vehiculo?.nombre || rep?.vehiculo_nombre || (rep?.vehiculo ? rep.vehiculo.toUpperCase() : 'MOTOCICLETA');
+}
+
+/**
+ * Obtiene la lista de repartidores ordenados por disponibilidad, capacidad y valoraciones.
+ * Usa la RPC SECURITY DEFINER `obtener_repartidores_valorados` para consultar promedios de estrellas
+ * de forma segura sin exponer pedidos de otros clientes.
+ */
+export async function obtenerRepartidoresValorados(pesoTotal = 1.0) {
+  const peso = Number(pesoTotal) || 1.0;
+
+  try {
+    const { data: rpcList, error: rpcErr } = await supabase.rpc('obtener_repartidores_valorados', {
+      p_peso_total: peso,
+    });
+
+    if (!rpcErr && Array.isArray(rpcList)) {
+      return rpcList;
+    }
+
+    if (rpcErr) {
+      console.warn('[AsignacionPedidos] Fallback al listar repartidores (RPC no disponible):', rpcErr.message);
+    }
+
+    // Fallback directo si la RPC aún no ha sido ejecutada en Supabase
+    const { data: reps, error } = await supabase
+      .from('repartidores_datos')
+      .select(`
+        id, vehiculo, placa, disponible, tipos_vehiculo_id,
+        tipos_vehiculo ( id, nombre, capacidad_peso_kg ),
+        profiles ( id, nombre_completo, telefono, correo_activado )
+      `);
+
+    if (error || !reps) return [];
+
+    return reps
+      .filter(r => r.profiles?.correo_activado !== false)
+      .map(r => {
+        const cap = getCapacidadRepartidor(r);
+        return {
+          id: r.id,
+          nombre_completo: r.profiles?.nombre_completo || 'Repartidor',
+          telefono: r.profiles?.telefono || null,
+          vehiculo: r.vehiculo,
+          placa: r.placa,
+          disponible: Boolean(r.disponible),
+          vehiculo_nombre: getVehiculoNombreRepartidor(r),
+          capacidad_peso_kg: cap,
+          apto_peso: cap >= peso,
+          promedio_valoracion: 0,
+          total_valoraciones: 0,
+          entregas_completadas: 0,
+          repartos_activos: 0,
+        };
+      })
+      .sort((a, b) => {
+        if (a.disponible !== b.disponible) return a.disponible ? -1 : 1;
+        if (a.apto_peso !== b.apto_peso) return a.apto_peso ? -1 : 1;
+        return b.promedio_valoracion - a.promedio_valoracion;
+      });
+  } catch (err) {
+    console.warn('[AsignacionPedidos] Error obteniendo repartidores valorados:', err);
+    return [];
+  }
 }
 
 /**
@@ -79,7 +142,7 @@ export async function buscarMejorRepartidorDisponible(pesoTotal = 1.0) {
  * con bloqueo transaccional (SELECT ... FOR UPDATE SKIP LOCKED), evitando condiciones de carrera.
  * Notifica inmediatamente tanto al repartidor como al cliente en tiempo real.
  */
-export async function autoAsignarPedido(pedidoId, pesoTotal = 1.0) {
+export async function autoAsignarPedido(pedidoId, pesoTotal = 1.0, repartidorId = null) {
   if (!pedidoId) return { success: false, error: 'ID de pedido inválido' };
 
   try {
@@ -87,6 +150,7 @@ export async function autoAsignarPedido(pedidoId, pesoTotal = 1.0) {
     const { data: rpcRes, error: rpcErr } = await supabase.rpc('auto_asignar_repartidor_pedido', {
       p_pedido_id: pedidoId,
       p_peso_total: Number(pesoTotal) || 1.0,
+      p_repartidor_id: repartidorId || null,
     });
 
     if (!rpcErr && rpcRes) {
@@ -129,7 +193,7 @@ export async function autoAsignarPedido(pedidoId, pesoTotal = 1.0) {
     }
 
     // 2. Fallback resiliente en cliente si la función RPC aún no está migrada en la base de datos
-    return await autoAsignarPedidoClienteFallback(pedidoId, pesoTotal);
+    return await autoAsignarPedidoClienteFallback(pedidoId, pesoTotal, repartidorId);
   } catch (err) {
     console.error('[AsignacionPedidos] Error general en autoAsignarPedido:', err);
     return { success: false, error: err.message };
@@ -139,7 +203,7 @@ export async function autoAsignarPedido(pedidoId, pesoTotal = 1.0) {
 /**
  * Fallback de asignación ejecutado en cliente si la base de datos no tiene la función RPC
  */
-async function autoAsignarPedidoClienteFallback(pedidoId, pesoTotal = 1.0) {
+async function autoAsignarPedidoClienteFallback(pedidoId, pesoTotal = 1.0, repartidorId = null) {
   // ── REGLA: Verificar comprobante de pago si existe ──
   const { data: pagos, error: errPago } = await supabase
     .from('reportes_pago')
@@ -155,7 +219,24 @@ async function autoAsignarPedidoClienteFallback(pedidoId, pesoTotal = 1.0) {
     };
   }
 
-  const mejorRep = await buscarMejorRepartidorDisponible(pesoTotal);
+  let mejorRep = null;
+  if (repartidorId) {
+    const { data: chosenRep } = await supabase
+      .from('repartidores_datos')
+      .select(`
+        id, vehiculo, placa, disponible, tipos_vehiculo_id,
+        tipos_vehiculo ( id, nombre, capacidad_peso_kg ),
+        profiles ( id, nombre_completo, telefono )
+      `)
+      .eq('id', repartidorId)
+      .maybeSingle();
+    mejorRep = chosenRep;
+  }
+
+  if (!mejorRep) {
+    mejorRep = await buscarMejorRepartidorDisponible(pesoTotal);
+  }
+
   if (!mejorRep) {
     return { success: false, error: 'No hay repartidores registrados en este momento' };
   }

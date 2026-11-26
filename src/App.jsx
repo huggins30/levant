@@ -15,7 +15,6 @@ import RastreoPedidoNeumorphic from './components/cliente/RastreoPedidoNeumorphi
 import ClienteAlertas    from './components/cliente/ClienteAlertas';
 import RepartidorAlertas from './components/repartidor/RepartidorAlertas';
 import PedidosRealtimeBadge from './components/common/PedidosRealtimeBadge';
-import ThemeToggle from './components/common/ThemeToggle';
 import { usePedidosRealtime } from './hooks/usePedidosRealtime';
 import { initNativeNotifications, clearNativeAppBadge } from './lib/nativeNotifications';
 
@@ -323,7 +322,6 @@ export default function App() {
         </button>
 
         <div className="app-mobile-topbar-right">
-          <ThemeToggle showLabel={false} size="sm" />
           {rol === 'comercio' ? (
             <button
               type="button"
@@ -385,18 +383,15 @@ export default function App() {
                 </div>
                 <span className="app-mobile-brand-name">Levant</span>
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                <ThemeToggle showLabel={false} size="sm" />
-                <button
-                  type="button"
-                  className="app-mobile-drawer-close"
-                  onClick={() => setMobileMenuOpen(false)}
-                  aria-label="Cerrar menú"
-                  title="Cerrar menú"
-                >
-                  <X size={18} strokeWidth={2.2} />
-                </button>
-              </div>
+              <button
+                type="button"
+                className="app-mobile-drawer-close"
+                onClick={() => setMobileMenuOpen(false)}
+                aria-label="Cerrar menú"
+                title="Cerrar menú"
+              >
+                <X size={18} strokeWidth={2.2} />
+              </button>
             </div>
 
             {/* Perfil del usuario */}
@@ -523,7 +518,6 @@ export default function App() {
         </div>
 
         <div className="app-sidebar-bottom">
-          <ThemeToggle showLabel={true} size="md" className="app-sidebar-theme-toggle" />
           <span className={`app-rol-badge app-rol-badge--${rol}`}>
             {rol === 'cliente'    && <User size={14} strokeWidth={2.2} />}
             {rol === 'comercio'  && <Store size={14} strokeWidth={2.2} />}

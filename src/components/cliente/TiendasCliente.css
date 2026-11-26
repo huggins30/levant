@@ -1117,3 +1117,148 @@
   .tc-card-body { padding: 1rem; }
   .tc-cart-bar { padding: .75rem; }
 }
+
+/* ── Selector de Repartidor por Valoraciones ── */
+.tc-rep-section {
+  margin-bottom: 1.15rem;
+  padding: 0.9rem;
+  background: #F9FAFB;
+  border: 1px solid var(--tc-border);
+  border-radius: 10px;
+}
+
+.tc-rep-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.65rem;
+}
+
+.tc-rep-title {
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: var(--tc-text);
+}
+
+.tc-rep-sub {
+  font-size: 0.74rem;
+  color: var(--tc-muted);
+}
+
+.tc-rep-loading,
+.tc-rep-empty {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.8rem;
+  color: var(--tc-muted);
+  padding: 0.5rem 0;
+}
+
+.tc-rep-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.tc-rep-card {
+  width: 100%;
+  text-align: left;
+  padding: 0.7rem 0.85rem;
+  background: #FFFFFF;
+  border: 1.5px solid var(--tc-border);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
+  font-family: inherit;
+}
+
+.tc-rep-card:hover {
+  border-color: #1A1A1A;
+}
+
+.tc-rep-card--selected {
+  border-color: #1A1A1A;
+  background: #F4F6F8;
+  box-shadow: 0 0 0 1px #1A1A1A;
+}
+
+.tc-rep-card--busy {
+  opacity: 0.85;
+}
+
+.tc-rep-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.3rem;
+}
+
+.tc-rep-name-wrap {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.tc-rep-radio {
+  font-size: 0.9rem;
+  color: #1A1A1A;
+}
+
+.tc-rep-name {
+  font-size: 0.88rem;
+  color: var(--tc-text);
+}
+
+.tc-rep-status {
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+}
+
+.tc-rep-status--ok {
+  background: #E3F1DF;
+  color: #108043;
+}
+
+.tc-rep-status--busy {
+  background: #FFF5EA;
+  color: #9E6C00;
+}
+
+.tc-rep-card-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  font-size: 0.76rem;
+  color: var(--tc-muted);
+  padding-left: 1.2rem;
+}
+
+.tc-rep-rating {
+  color: #B45309;
+  font-weight: 600;
+}
+
+.tc-rep-weight-warn {
+  margin-top: 0.3rem;
+  padding-left: 1.2rem;
+  font-size: 0.72rem;
+  color: #9E6C00;
+}
+
+.tc-rep-active-count {
+  font-weight: 600;
+  color: #108043;
+}
+
+.tc-rep-active-count--busy {
+  color: #B45309;
+}

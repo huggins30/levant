@@ -517,6 +517,30 @@
   text-decoration: underline;
 }
 
+/* Botón Navegar (Geolocalización) */
+.rp-btn-navigate {
+  display: inline-flex;
+  align-items: center;
+  gap: .3rem;
+  margin-top: .35rem;
+  padding: .3rem .7rem;
+  font-size: .78rem;
+  font-weight: 600;
+  color: #fff;
+  background: #1a73e8;
+  border: none;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background .2s, transform .1s;
+}
+.rp-btn-navigate:hover {
+  background: #1558b0;
+  transform: scale(1.03);
+}
+.rp-btn-navigate:active {
+  transform: scale(.97);
+}
+
 /* Items Summary */
 .rp-items-summary {
   margin-bottom: 1rem;

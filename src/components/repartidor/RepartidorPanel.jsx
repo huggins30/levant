@@ -24,6 +24,14 @@ const ESTADO_BADGE = {
 const CEDULA_REGEX = /^(V|E)-[0-9]{6,8}$/;
 const PLACA_REGEX  = /^[A-Z0-9]{5,8}$/;
 
+// ── Geolocalización ─────────────────────────────────────────────
+const openNavigation = (address) => {
+  if (!address) return;
+  const encoded = encodeURIComponent(address);
+  // Abre Google Maps en el navegador/APK — en Android abre la app de mapas nativa
+  window.open(`https://www.google.com/maps/search/?api=1&query=${encoded}`, '_blank');
+};
+
 // ── Star display ────────────────────────────────────────────────
 const Stars = ({ value }) => (
   <span className="rp-stars" aria-label={`${value} de 5 estrellas`}>
@@ -42,6 +50,7 @@ export default function RepartidorPanel({ session, initialTab = 'pedidos' }) {
   const [toggling, setToggling] = useState(false);
   const [formErrors, setFormErrors] = useState({});
   const [formStatus, setFormStatus] = useState(null);
+  const [formErrorMessage, setFormErrorMessage] = useState('');
   const [formLoading, setFormLoading] = useState(false);
 
   // ── Historial ────────────────────────────────────────────────
@@ -396,15 +405,38 @@ export default function RepartidorPanel({ session, initialTab = 'pedidos' }) {
     if (Object.keys(ve).length) { setFormErrors(ve); return; }
     setFormLoading(true);
     setFormStatus(null);
+    setFormErrorMessage('');
 
     try {
       const uid = session.user.id;
+      const cedulaTrim = form.cedula.trim().toUpperCase();
+      const placaTrim = form.placa.trim().toUpperCase() || null;
+
+      // 1. Intentar guardar mediante RPC SECURITY DEFINER (atómico y sin bloqueo RLS)
+      const { data: rpcData, error: rpcErr } = await supabase.rpc('guardar_perfil_repartidor', {
+        p_cedula:   cedulaTrim,
+        p_vehiculo: form.vehiculo,
+        p_placa:    placaTrim,
+      });
+
+      if (!rpcErr && rpcData) {
+        setRepData(rpcData);
+        setDisponible(rpcData.disponible);
+        setFormStatus('ok');
+        return;
+      }
+
+      if (rpcErr && rpcErr.message && !rpcErr.message.includes('function') && !rpcErr.message.includes('does not exist')) {
+        console.warn('RPC guardar_perfil_repartidor error:', rpcErr);
+      }
+
+      // 2. Fallback directo mediante upsert en repartidores_datos
       const payload = {
         profile_id: uid,
-        cedula:     form.cedula.trim().toUpperCase(),
+        cedula:     cedulaTrim,
         vehiculo:   form.vehiculo,
-        placa:      form.placa.trim().toUpperCase() || null,
-        disponible,
+        placa:      placaTrim,
+        disponible: true, // Habilitar disponibilidad por defecto al completar perfil
       };
 
       const { data, error } = await supabase
@@ -415,9 +447,11 @@ export default function RepartidorPanel({ session, initialTab = 'pedidos' }) {
 
       if (error) throw error;
       setRepData(data);
+      setDisponible(data.disponible);
       setFormStatus('ok');
     } catch (err) {
-      console.error(err);
+      console.error('Error guardando perfil de repartidor:', err);
+      setFormErrorMessage(err.message || 'Error al guardar. Intenta de nuevo.');
       setFormStatus('err');
     } finally {
       setFormLoading(false);
@@ -706,6 +740,15 @@ export default function RepartidorPanel({ session, initialTab = 'pedidos' }) {
                                 <span className="rp-route-type">PUNTO DE ENTREGA (CLIENTE)</span>
                                 <strong className="rp-route-name">{ped.profiles?.nombre_completo || 'Cliente'}</strong>
                                 <span className="rp-route-addr">{ped.direccion_entrega}</span>
+                                {ped.direccion_entrega && (
+                                  <button
+                                    className="rp-btn-navigate"
+                                    onClick={(e) => { e.stopPropagation(); openNavigation(ped.direccion_entrega); }}
+                                    title="Abrir en Google Maps"
+                                  >
+                                    📍 Navegar
+                                  </button>
+                                )}
                                 {ped.profiles?.telefono && (
                                   <a href={`tel:${ped.profiles.telefono}`} className="rp-route-phone">
                                     📞 Llamar: {ped.profiles.telefono}
@@ -835,7 +878,7 @@ export default function RepartidorPanel({ session, initialTab = 'pedidos' }) {
             </div>
 
             {formStatus === 'ok'  && <div className="rp-alert-ok">✅ Perfil guardado correctamente.</div>}
-            {formStatus === 'err' && <div className="rp-alert-err">❌ Error al guardar. Intenta de nuevo.</div>}
+            {formStatus === 'err' && <div className="rp-alert-err">❌ {formErrorMessage || 'Error al guardar. Intenta de nuevo.'}</div>}
 
             <button id="rp-perfil-save" type="submit" className="rp-btn-primary" disabled={formLoading}>
               {formLoading ? <span className="rp-spinner" /> : '💾 Guardar perfil'}

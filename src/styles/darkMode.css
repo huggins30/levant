@@ -1434,3 +1434,14 @@
   border-color: #6366F1 !important;
   box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.25) !important;
 }
+
+/* ── Repartidor: botón Navegar (dark mode) ──────────────── */
+[data-theme="dark"] .rp-btn-navigate,
+.dark .rp-btn-navigate {
+  background: #2563eb !important;
+  color: #fff !important;
+}
+[data-theme="dark"] .rp-btn-navigate:hover,
+.dark .rp-btn-navigate:hover {
+  background: #1d4ed8 !important;
+}
